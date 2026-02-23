@@ -8,6 +8,8 @@ format:
   html:
     toc: true
     toc-float: true
+execute:
+  cache: true
 ---
 
 In today’s fast-changing AI landscape, timely and accurate information is crucial.
@@ -24,9 +26,95 @@ This projects aims to advanced NLP techniques to:
 However, cleaning and exploration is necessary before any analysis.
 As such, this notebook's objectives are the following:
 
-* Cleaning the `ai_media_dataset.csv` ([Kaggle Challenge Source](#https://www.kaggle.com/datasets/jannalipenkova/ai-media-dataset?utm_source=chatgpt.com)
+* Cleaning the `ai_media_dataset.csv` ([Kaggle Challenge Source](#https://www.kaggle.com/datasets/jannalipenkova/ai-media-dataset?utm_source=chatgpt.com))
 * Exploratory Data Analysis
 * Temporal Analysis of Trends
 * Sentiment Analysis
 * Entities and Relationship Extraction
 * Construction of a Knowledge Graph
+
+```{python}
+#| label: imports
+#| echo: false
+import pandas as pd
+```
+
+```{python}
+#| label: data loading
+#| echo: false
+ai_media = pd.read_csv("../data/raw/ai_media_dataset.csv")
+```
+
+## Overview
+
+The raw datasets contains the following features.
+
+* `title`: the media's title
+* `date`: the media publication date
+* `content`: list of the media's content chunked by paragraph
+* `domain`: the publication URL domain
+* `url`: the URL of publication
+* `tags`: list of tags classifying the media 
+
+```{python}
+#| echo: false
+ai_media.head()
+```
+
+<br>
+
+Features such as `content` and `tags` would need, after parsing, to be standardized.
+Moreover, we observe different entities and relationships in the dataset.
+Structuring the data efficiently is key for efficient analysis.
+
+Adopting a *Entity-Relationship Approach*, we observe the following entities and relationships.
+The schemas has been purposefully kept concise,	but modular.
+If needed, news entities **Chunk** or **Tags** could be created.
+
+:::{.callout-note}
+The rational behind separating each media from its chunked content or tags is the following.
+
+First, standardization of the feature is important to avoid anomaly.
+
+Second, both features are important features that will be used throghout the project under different form.
+For example, the chunked media's content is important to allow the future RAG to grasp on precise part of the corpus. 
+Alternatively, each chunk can be further associated with classes or sentiment for a deeper and granular understanding of the text.
+On top of that, a granular understand of the text is important for a *Knowledge Graph*.
+In the future, if each chunk were to be associated with new metrics, creating a unique *Chunk* entity would be wise.
+:::
+
+:::{.callout-tip}
+The goal is to keep this schema evolving throughout the project and our analysis requirements.
+:::
+
+:::{.columns}
+::: {.column}
+* **Media (Entity)**
+  * `media_id`
+  * `title`
+  * `url`
+  * `full_content`
+  * `domain`
+:::
+
+::: {.column}
+* **Media_has_Chunk (Relationships):**
+  * `media_id`
+  * `chunk_content`
+:::
+
+::: {.column}
+* **Media_has_Tags (Relationship)**
+  * `media_id`
+  * `tag`
+:::
+
+:::
+
+## Initial Cleaning
+
+The initial cleaning involves parsing both `tags` and `content` variable, as well as extracting the data into the appropriate schemas.
+
+```{python}
+
+```
