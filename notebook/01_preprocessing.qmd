@@ -34,9 +34,19 @@ As such, this notebook's objectives are the following:
 * Construction of a Knowledge Graph
 
 ```{python}
+#| label: set-root-folder
+#| echo: false
+import sys
+sys.path.append("../")
+```
+
+```{python}
 #| label: imports
 #| echo: false
+import sys
 import pandas as pd
+
+from src.lib import parse_string_into_list
 ```
 
 ```{python}
@@ -100,7 +110,7 @@ The goal is to keep this schema evolving throughout the project and our analysis
 ::: {.column}
 * **Media_has_Chunk (Relationships):**
   * `media_id`
-  * `chunk_content`
+  * `chunked_content`
 :::
 
 ::: {.column}
@@ -113,8 +123,87 @@ The goal is to keep this schema evolving throughout the project and our analysis
 
 ## Initial Cleaning
 
-The initial cleaning involves parsing both `tags` and `content` variable, as well as extracting the data into the appropriate schemas.
+The initial cleaning process involves parsing both `tags` and `content` variable, as well as extracting the data into the appropriate schemas.
+
+First we create the corresponding **Media** entity table, as well as **Media_has_Chunk** and **Media_has_Tags** relationship tables.
 
 ```{python}
+#| label: media-table
+#| eval: false
+stg_media = ai_media.copy()
 
+stg_media["full_content"] = (
+	stg_media
+	.content
+	.apply(lambda content: "".join(parse_string_into_list(content)))
+)
+media = (
+	ai_media
+	.loc[:, ["title", "domain", "url", "full_content"]]
+	.reset_index()
+	.rename(columns={"index": "media_id"})
+)
+```
+
+```{python}
+#| label: media-has-chunk-table
+#| eval: false
+stg_media_has_chunk = (
+	ai_media
+	.reset_index()
+	.rename(columns={"index": "media_id"})
+	.loc[:, ["media_id", "content"]]
+)
+stg_media_has_chunk["content_list"] = stg_media_has_chunk.content.apply(parse_string_into_list)
+
+media_has_chunk = (
+	stg_media_has_chunk
+	.explode("content_list", ignore_index=False)
+	.drop(columns="content")
+	.rename(columns={"content_list": "chunked_content"})
+)
+```
+
+```{python}
+#| label: media-has-tags-table
+#| eval: false
+
+stg_media_has_tags = (
+	ai_media
+	.reset_index().rename(columns={"index": "media_id"})
+	.loc[:, ["media_id", "tags"]]
+)
+stg_media_has_tags["tags_list"] = stg_media_has_tags.tags.apply(parse_string_into_list)
+
+media_has_tags = (
+	stg_media_has_tags
+	.explode("tags_list", ignore_index=False)
+	.drop(columns="tags")
+	.rename(columns={"tags_list": "tag"})
+)
+```
+
+<br>
+
+```{python}
+#| echo: false
+media = pd.read_csv("../data/processed/media.csv")
+media_has_chunk = pd.read_csv("../data/processed/media_has_chunk.csv")
+media_has_tags = pd.read_csv("../data/processed/media_has_tags.csv")
+
+media.head()
+```
+
+<hr>
+
+```{python}
+#| echo: false
+media_has_chunk.head()
+```
+
+<hr>
+
+```{python}
+#| echo: false
+media_has_tags.head()
 ```
