@@ -1,0 +1,32 @@
+---
+title: "AI Media Trend Mining"
+subtitle: "Data Cleaning, Preprocessing & Exploratory Analysis"
+author:
+  name: "Sever Alin, Huber Daniel & Girardin Robin"
+  affiliation: "Hochschule Luzern"
+format:
+  html:
+    toc: true
+    toc-float: true
+---
+
+In today’s fast-changing AI landscape, timely and accurate information is crucial.
+AI breakthroughs in generative models, robotics, natural language processing (NLP),
+and ethics are reshaping industries and society at large.
+
+This projects aims to advanced NLP techniques to:
+
+* study AI innovations and debates,
+* track emerging trends over time,
+* analyze sentiment around key technological and ethical issues,
+* experiment with building intelligent applications such as Q&A systems and news monitors (RAG).
+
+However, cleaning and exploration is necessary before any analysis.
+As such, this notebook's objectives are the following:
+
+* Cleaning the `ai_media_dataset.csv` ([Kaggle Challenge Source](#https://www.kaggle.com/datasets/jannalipenkova/ai-media-dataset?utm_source=chatgpt.com)
+* Exploratory Data Analysis
+* Temporal Analysis of Trends
+* Sentiment Analysis
+* Entities and Relationship Extraction
+* Construction of a Knowledge Graph
