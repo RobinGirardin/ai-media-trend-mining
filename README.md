@@ -77,10 +77,10 @@ ai-media-trend-mining/
 │
 ├── data/                 # Dataset samples or data loaders (if permitted)
 ├── notebooks/
-│   ├── stage1_eda.ipynb
-│   ├── stage2_embeddings.ipynb
-│   └── stage3_rag.ipynb
+│   ├── 01_preprocessing.ipynb
+│   ├── 02_embeddings.ipynb
+│   └── 03_rag.ipynb
 ├── src/                  # Reusable code (preprocessing, models, utils)
-├── figures/              # Generated plots and visualizations
+├── tests/                # Tests for reusable code
 ├── requirements.txt
 └── README.md
