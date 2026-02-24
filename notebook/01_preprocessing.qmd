@@ -26,7 +26,7 @@ This projects aims to advanced NLP techniques to:
 However, cleaning and exploration is necessary before any analysis.
 As such, this notebook's objectives are the following:
 
-* Cleaning the `ai_media_dataset.csv` ([Kaggle Challenge Source](#https://www.kaggle.com/datasets/jannalipenkova/ai-media-dataset?utm_source=chatgpt.com))
+* Cleaning the `ai_media_dataset.csv` ([Kaggle Challenge Source](https://www.kaggle.com/datasets/jannalipenkova/ai-media-dataset?utm_source=chatgpt.com))
 * Exploratory Data Analysis
 * Temporal Analysis of Trends
 * Sentiment Analysis
