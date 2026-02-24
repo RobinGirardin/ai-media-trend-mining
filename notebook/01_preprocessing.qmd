@@ -81,7 +81,8 @@ Adopting a *Entity-Relationship Approach*, we observe the following entities and
 The schemas has been purposefully kept concise,	but modular.
 If needed, news entities **Chunk** or **Tags** could be created.
 
-:::{.callout-note}
+<br>
+
 The rational behind separating each media from its chunked content or tags is the following.
 
 First, standardization of the feature is important to avoid anomaly.
@@ -91,7 +92,8 @@ For example, the chunked media's content is important to allow the future RAG to
 Alternatively, each chunk can be further associated with classes or sentiment for a deeper and granular understanding of the text.
 On top of that, a granular understand of the text is important for a *Knowledge Graph*.
 In the future, if each chunk were to be associated with new metrics, creating a unique *Chunk* entity would be wise.
-:::
+
+Third, Knowledge Graph (see @sec-kg) requires us to understand the different entities of the data and their relationships. As such, keeping the schema evolving throughout the project will help us in the latter stage tremendously.
 
 :::{.callout-tip}
 The goal is to keep this schema evolving throughout the project and our analysis requirements.
@@ -194,16 +196,79 @@ media_has_tags = pd.read_csv("../data/processed/media_has_tags.csv")
 media.head()
 ```
 
-<hr>
+:::{.columns}
+
+:::{.column style="padding-right: 2rem;"}
 
 ```{python}
 #| echo: false
 media_has_chunk.head()
 ```
+:::
 
-<hr>
+:::{.column style="padding-left: 2rem;"}
 
 ```{python}
 #| echo: false
 media_has_tags.head()
 ```
+:::
+
+:::
+
+## Further Cleaning 
+
+Although the initial cleaning took care of the immediate necessities, task-specific cleaning operation needs to be undertaken.
+Indeed, each analysis and models needs different type of inputs to function best.
+
+:::{.callout-warning}
+The rest of this section needs to be implemented and, in my opinion, strongly depends on the tasks ahead.
+
+**Note:** I (Robin) haven't had a look at the provided preprocessing examples.
+As such, this previous claim or focus might need to change.
+:::
+
+## Exploratory Analysis
+
+:::{.callout-warning}
+This section needs to be implemented
+:::
+
+## Temporal Analysis
+
+:::{.callout-warning}
+This section needs to be implemented
+:::
+
+## Sentiment Analysis
+
+:::{.callout-warning}
+This section needs to be implemented
+:::
+
+## Entities and Relationship Extraction
+
+:::{.callout-warning}
+This section needs to be implemented, though what exactly needs to extracted and how depends on the core questions that we want to answer.
+:::
+
+## Knowledge Graph {#sec-kg}
+ 
+A knowledge graph is a way of depicting data in a highly relational way, akin to a mindmap.
+This allows a deep understanding and precise querying of entities and their relationships.
+
+Moreover, its data model mainly consists of 3 main components: node, relationships and properties.
+A node is corresponds to a data entities, while relationships are how different entities relate to each other.
+Moreover, properties are way to describe **both** node and relationships.
+
+:::{.callout-tip}
+See [Neo4j - Data Modelling](https://neo4j.com/docs/getting-started/data-modeling/) for more informations
+:::
+
+Its purpose, akin to a mindmap, is to create a precise and deep map of knowledge.
+Quality, rather that quantity, is were a Knowledge Graph seems to truly shines. 
+As such, in the following section, we aim a creating a graph that focus on answering the following questions.
+
+:::{.callout-warning}
+This section needs to be implemented, though staring by figuring out the main questions we want to answer is a good starting point.
+:::
