@@ -1,0 +1,20 @@
+project:
+  type: default
+  execute-dir: project
+
+format:
+  html:
+    toc: true
+    toc-float: true
+    number-sections: true
+    code-fold: true
+    theme: cosmo
+
+execute:
+  echo: true
+  warning: false
+  message: false
+  cache: true
+  freeze: auto
+
+editor: source

@@ -12,33 +12,23 @@ execute:
   cache: true
 ---
 
-In today’s fast-changing AI landscape, timely and accurate information is crucial.
-AI breakthroughs in generative models, robotics, natural language processing (NLP),
-and ethics are reshaping industries and society at large.
+In today’s fast-changing AI landscape, timely and accurate information is crucial. AI breakthroughs in generative models, robotics, natural language processing (NLP), and ethics are reshaping industries and society at large.
 
 This projects aims to advanced NLP techniques to:
 
-* study AI innovations and debates,
-* track emerging trends over time,
-* analyze sentiment around key technological and ethical issues,
-* experiment with building intelligent applications such as Q&A systems and news monitors (RAG).
+-   study AI innovations and debates,
+-   track emerging trends over time,
+-   analyze sentiment around key technological and ethical issues,
+-   experiment with building intelligent applications such as Q&A systems and news monitors (RAG).
 
-However, cleaning and exploration is necessary before any analysis.
-As such, this notebook's objectives are the following:
+However, cleaning and exploration is necessary before any analysis. As such, this notebook's objectives are the following:
 
-* Cleaning the `ai_media_dataset.csv` ([Kaggle Challenge Source](https://www.kaggle.com/datasets/jannalipenkova/ai-media-dataset?utm_source=chatgpt.com))
-* Exploratory Data Analysis
-* Temporal Analysis of Trends
-* Sentiment Analysis
-* Entities and Relationship Extraction
-* Construction of a Knowledge Graph
-
-```{python}
-#| label: set-root-folder
-#| echo: false
-import sys
-sys.path.append("../")
-```
+-   Cleaning the `ai_media_dataset.csv` ([Kaggle Challenge Source](https://www.kaggle.com/datasets/jannalipenkova/ai-media-dataset?utm_source=chatgpt.com))
+-   Exploratory Data Analysis
+-   Temporal Analysis of Trends
+-   Sentiment Analysis
+-   Entities and Relationship Extraction
+-   Construction of a Knowledge Graph
 
 ```{python}
 #| label: imports
@@ -52,19 +42,19 @@ from src.lib import parse_string_into_list
 ```{python}
 #| label: data loading
 #| echo: false
-ai_media = pd.read_csv("../data/raw/ai_media_dataset.csv")
+ai_media = pd.read_csv("data/raw/ai_media_dataset.csv")
 ```
 
 ## Overview
 
 The raw datasets contains the following features.
 
-* `title`: the media's title
-* `date`: the media publication date
-* `content`: list of the media's content chunked by paragraph
-* `domain`: the publication URL domain
-* `url`: the URL of publication
-* `tags`: list of tags classifying the media 
+-   `title`: the media's title
+-   `date`: the media publication date
+-   `content`: list of the media's content chunked by paragraph
+-   `domain`: the publication URL domain
+-   `url`: the URL of publication
+-   `tags`: list of tags classifying the media
 
 ```{python}
 #| echo: false
@@ -73,13 +63,9 @@ ai_media.head()
 
 <br>
 
-Features such as `content` and `tags` would need, after parsing, to be standardized.
-Moreover, we observe different entities and relationships in the dataset.
-Structuring the data efficiently is key for efficient analysis.
+Features such as `content` and `tags` would need, after parsing, to be standardized. Moreover, we observe different entities and relationships in the dataset. Structuring the data efficiently is key for efficient analysis.
 
-Adopting a *Entity-Relationship Approach*, we observe the following entities and relationships.
-The schemas has been purposefully kept concise,	but modular.
-If needed, news entities **Chunk** or **Tags** could be created.
+Adopting a *Entity-Relationship Approach*, we observe the following entities and relationships. The schemas has been purposefully kept concise, but modular. If needed, news entities **Chunk** or **Tags** could be created.
 
 <br>
 
@@ -87,40 +73,35 @@ The rational behind separating each media from its chunked content or tags is th
 
 First, standardization of the feature is important to avoid anomaly.
 
-Second, both features are important features that will be used throghout the project under different form.
-For example, the chunked media's content is important to allow the future RAG to grasp on precise part of the corpus. 
-Alternatively, each chunk can be further associated with classes or sentiment for a deeper and granular understanding of the text.
-On top of that, a granular understand of the text is important for a *Knowledge Graph*.
-In the future, if each chunk were to be associated with new metrics, creating a unique *Chunk* entity would be wise.
+Second, both features are important features that will be used throghout the project under different form. For example, the chunked media's content is important to allow the future RAG to grasp on precise part of the corpus. Alternatively, each chunk can be further associated with classes or sentiment for a deeper and granular understanding of the text. On top of that, a granular understand of the text is important for a *Knowledge Graph*. In the future, if each chunk were to be associated with new metrics, creating a unique *Chunk* entity would be wise.
 
 Third, Knowledge Graph (see @sec-kg) requires us to understand the different entities of the data and their relationships. As such, keeping the schema evolving throughout the project will help us in the latter stage tremendously.
 
-:::{.callout-tip}
+::: callout-tip
 The goal is to keep this schema evolving throughout the project and our analysis requirements.
 :::
 
-:::{.columns}
-::: {.column}
-* **Media (Entity)**
-  * `media_id`
-  * `title`
-  * `url`
-  * `full_content`
-  * `domain`
+::: columns
+::: column
+-   **Media (Entity)**
+    -   `media_id`
+    -   `title`
+    -   `url`
+    -   `full_content`
+    -   `domain`
 :::
 
-::: {.column}
-* **Media_has_Chunk (Relationships):**
-  * `media_id`
-  * `chunked_content`
+::: column
+-   **Media_has_Chunk (Relationships):**
+    -   `media_id`
+    -   `chunked_content`
 :::
 
-::: {.column}
-* **Media_has_Tags (Relationship)**
-  * `media_id`
-  * `tag`
+::: column
+-   **Media_has_Tags (Relationship)**
+    -   `media_id`
+    -   `tag`
 :::
-
 :::
 
 ## Initial Cleaning
@@ -189,86 +170,75 @@ media_has_tags = (
 
 ```{python}
 #| echo: false
-media = pd.read_csv("../data/processed/media.csv")
-media_has_chunk = pd.read_csv("../data/processed/media_has_chunk.csv")
-media_has_tags = pd.read_csv("../data/processed/media_has_tags.csv")
+media = pd.read_csv("data/processed/media.csv")
+media_has_chunk = pd.read_csv("data/processed/media_has_chunk.csv")
+media_has_tags = pd.read_csv("data/processed/media_has_tags.csv")
 
 media.head()
 ```
 
-:::{.columns}
-
-:::{.column style="padding-right: 2rem;"}
-
+::: columns
+::: {.column style="padding-right: 2rem;"}
 ```{python}
 #| echo: false
 media_has_chunk.head()
 ```
 :::
 
-:::{.column style="padding-left: 2rem;"}
-
+::: {.column style="padding-left: 2rem;"}
 ```{python}
 #| echo: false
 media_has_tags.head()
 ```
 :::
-
 :::
 
-## Further Cleaning 
+## Further Cleaning
 
-Although the initial cleaning took care of the immediate necessities, task-specific cleaning operation needs to be undertaken.
-Indeed, each analysis and models needs different type of inputs to function best.
+Although the initial cleaning took care of the immediate necessities, task-specific cleaning operation needs to be undertaken. Indeed, each analysis and models needs different type of inputs to function best.
 
-:::{.callout-warning}
+::: callout-warning
 The rest of this section needs to be implemented and, in my opinion, strongly depends on the tasks ahead.
 
-**Note:** I (Robin) haven't had a look at the provided preprocessing examples.
-As such, this previous claim or focus might need to change.
+**Note:** I (Robin) haven't had a look at the provided preprocessing examples. As such, this previous claim or focus might need to change.
 :::
 
 ## Exploratory Analysis
 
-:::{.callout-warning}
+::: callout-warning
 This section needs to be implemented
 :::
 
 ## Temporal Analysis
 
-:::{.callout-warning}
+::: callout-warning
 This section needs to be implemented
 :::
 
 ## Sentiment Analysis
 
-:::{.callout-warning}
+::: callout-warning
 This section needs to be implemented
 :::
 
 ## Entities and Relationship Extraction
 
-:::{.callout-warning}
+::: callout-warning
 This section needs to be implemented, though what exactly needs to extracted and how depends on the core questions that we want to answer.
 :::
 
 ## Knowledge Graph {#sec-kg}
- 
-A knowledge graph is a way of depicting data in a highly relational way, akin to a mindmap.
-This allows a deep understanding and precise querying of entities and their relationships.
 
-Moreover, its data model mainly consists of 3 main components: node, relationships and properties.
-A node is corresponds to a data entities, while relationships are how different entities relate to each other.
-Moreover, properties are way to describe **both** node and relationships.
+A knowledge graph is a way of depicting data in a highly relational way, akin to a mindmap. This allows a deep understanding and precise querying of entities and their relationships.
 
-:::{.callout-tip}
+Moreover, its data model mainly consists of 3 main components: node, relationships and properties. A node is corresponds to a data entities, while relationships are how different entities relate to each other. Moreover, properties are way to describe **both** node and relationships.
+
+::: callout-tip
 See [Neo4j - Data Modelling](https://neo4j.com/docs/getting-started/data-modeling/) for more informations
 :::
 
-Its purpose, akin to a mindmap, is to create a precise and deep map of knowledge.
-Quality, rather that quantity, is were a Knowledge Graph seems to truly shines. 
-As such, in the following section, we aim a creating a graph that focus on answering the following questions.
+Its purpose, akin to a mindmap, is to create a precise and deep map of knowledge. Quality, rather that quantity, is were a Knowledge Graph seems to truly shines. As such, in the following section, we aim a creating a graph that focus on answering the following questions.
 
-:::{.callout-warning}
+::: callout-warning
 This section needs to be implemented, though staring by figuring out the main questions we want to answer is a good starting point.
 :::
