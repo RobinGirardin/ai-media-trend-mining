@@ -2,6 +2,9 @@
 
 /.quarto/
 
+# Data
+data/processed/*
+
 # Quarto rendered outputs
 notebook/*.html
 notebook/*_files/
@@ -14,4 +17,3 @@ notebook/*_files/
 *.ipynb
 
 /_freeze/
-**/*.quarto_ipynb
