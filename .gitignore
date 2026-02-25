@@ -2,6 +2,9 @@
 
 /.quarto/
 
+# Data
+data/processed/*
+
 # Quarto rendered outputs
 notebook/*.html
 notebook/*_files/
