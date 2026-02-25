@@ -35,6 +35,7 @@ However, cleaning and exploration is necessary before any analysis. As such, thi
 #| echo: false
 import sys
 import pandas as pd
+import os
 
 from src.lib import parse_string_into_list
 ```
@@ -104,7 +105,7 @@ The goal is to keep this schema evolving throughout the project and our analysis
 :::
 :::
 
-## Initial Cleaning
+## Structural Normalization
 
 The initial cleaning process involves parsing both `tags` and `content` variable, as well as extracting the data into the appropriate schemas.
 
@@ -121,8 +122,8 @@ stg_media["full_content"] = (
 	.apply(lambda content: "".join(parse_string_into_list(content)))
 )
 media = (
-	ai_media
-	.loc[:, ["title", "domain", "url", "full_content"]]
+	stg_media
+	.loc[:, ["title", "domain", "url", "full_content", "date"]]
 	.reset_index()
 	.rename(columns={"index": "media_id"})
 )
@@ -169,6 +170,16 @@ media_has_tags = (
 <br>
 
 ```{python}
+#| label: storing-processed-data
+#| eval: false
+os.makedirs("data/processed", exist_ok=True)
+
+media.to_csv("data/processed/media.csv", index=False)
+media_has_chunk.to_csv("data/processed/media_has_chunk.csv", index=False)
+media_has_tags.to_csv("data/processed/media_has_tags.csv", index=False)
+```
+
+```{python}
 #| echo: false
 media = pd.read_csv("data/processed/media.csv")
 media_has_chunk = pd.read_csv("data/processed/media_has_chunk.csv")
@@ -193,15 +204,155 @@ media_has_tags.head()
 :::
 :::
 
-## Further Cleaning
+## Data Cleaning & Quality Control
 
-Although the initial cleaning took care of the immediate necessities, task-specific cleaning operation needs to be undertaken. Indeed, each analysis and models needs different type of inputs to function best.
+### Duplicates & Missing Values
 
-::: callout-warning
-The rest of this section needs to be implemented and, in my opinion, strongly depends on the tasks ahead.
+We start by checking for duplicate articles, either by identical URL or by identical content across different domains.
 
-**Note:** I (Robin) haven't had a look at the provided preprocessing examples. As such, this previous claim or focus might need to change.
-:::
+```{python}
+#| echo: true
+#| warning: false
+
+# Remove duplicate articles by URL
+duplicates_url = media[media.duplicated(subset="url", keep=False)]
+print(f"Duplicate URLs found: {len(duplicates_url)}")
+media = media.drop_duplicates(subset="url", keep="first")
+
+# Remove duplicate articles by identical content
+duplicates_content = media[media.duplicated(subset="full_content", keep=False)]
+print(f"Duplicate content found: {len(duplicates_content)}")
+media = media.drop_duplicates(subset="full_content", keep="first")
+
+print(f"Remaining articles after deduplication: {len(media)}")
+```
+
+
+Check full_content for empty strings or very short texts (near-empty articles)
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Inspect short articles before deciding on threshold
+media[media["full_content"].str.len() < 100][["title", "full_content"]].head(10)
+```
+
+Inspection reveals 3 near-empty articles. Two contain only redirect notices ("updated edition at...") and one has no meaningful content. All three are removed using a 100-character threshold.
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check for empty or very short full_content (threshold: 100 characters)
+empty_content = media[media["full_content"].isna() | (media["full_content"].str.strip() == "")]
+short_content = media[media["full_content"].str.len() < 100]
+
+print(f"Empty content: {len(empty_content)}")
+print(f"Very short content (< 100 chars): {len(short_content)}")
+
+# Remove empty and very short articles
+media = media[media["full_content"].str.len() >= 100]
+print(f"Remaining articles after content length filter: {len(media)}")
+```
+
+Document missing fields systematically (e.g. articles without tags, without domain)
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check for missing values across all tables
+print("=== media ===")
+print(media.isnull().sum())
+print(f"Total articles: {len(media)}\n")
+
+print("=== media_has_chunk ===")
+print(media_has_chunk.isnull().sum())
+print(f"Total chunks: {len(media_has_chunk)}\n")
+
+print("=== media_has_tags ===")
+print(media_has_tags.isnull().sum())
+print(f"Total tags: {len(media_has_tags)}\n")
+
+# Articles without any tag
+articles_without_tags = media[~media["media_id"].isin(media_has_tags["media_id"])]
+print(f"Articles without tags: {len(articles_without_tags)}")
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Remove empty chunks
+media_has_chunk = media_has_chunk.dropna(subset=["chunked_content"])
+media_has_chunk = media_has_chunk[media_has_chunk["chunked_content"].str.strip() != ""]
+
+print(f"Chunks after removing empty entries: {len(media_has_chunk)}")
+```
+
+### Date
+
+Add date field to the media entity table (currently missing)
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Parse date as Datetime type
+media["date"] = pd.to_datetime(media["date"])
+
+print(media["date"].dtype)
+print(media[["media_id", "title", "date"]].head())
+```
+
+Check for invalid or out-of-range date values
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check for invalid or out-of-range date values
+# Dataset should cover September 2024 – September 2025
+date_min = pd.Timestamp("2024-09-01")
+date_max = pd.Timestamp("2025-09-30")
+
+out_of_range = media[(media["date"] < date_min) | (media["date"] > date_max)]
+print(f"Out-of-range dates: {len(out_of_range)}")
+print(out_of_range[["media_id", "title", "date"]])
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+print(f"Total articles: {len(media)}")
+```
+
+After removing 1 empty and 3 near-empty articles, 16,383 articles remain within the expected date range (September 2024 – September 2025). No further action required.
+
+
+### Content Quality
+
+Strip HTML remnants (<br>, &amp;, &nbsp;, etc.)
+
+
+Filter out boilerplate text (newsletter prompts, cookie banners, navigation text)
+
+
+Identify and handle chunks that are too short (e.g. < 50 characters)
+
+
+Detect and handle non-English articles (filter out or flag separately)
+
+
+
+### Tags
+
+Normalize tag variants (e.g. GenerativeAI vs Generative_AI vs generative-ai)
+
+
+
 
 ## Exploratory Analysis
 
