@@ -38,6 +38,15 @@ import pandas as pd
 import os
 
 from src.lib import parse_string_into_list
+
+from bs4 import BeautifulSoup
+import html
+
+import re
+from collections import Counter
+
+from langdetect import detect, LangDetectException
+
 ```
 
 ```{python}
@@ -208,7 +217,7 @@ media_has_tags.head()
 
 ### Duplicates & Missing Values
 
-We start by checking for duplicate articles, either by identical URL or by identical content across different domains.
+**Checking for duplicate articles, either by identical URL or by identical content across different domains.**
 
 ```{python}
 #| echo: true
@@ -228,7 +237,7 @@ print(f"Remaining articles after deduplication: {len(media)}")
 ```
 
 
-Check full_content for empty strings or very short texts (near-empty articles)
+**Check full_content for empty strings or very short texts (near-empty articles)**
 
 ```{python}
 #| echo: true
@@ -256,7 +265,8 @@ media = media[media["full_content"].str.len() >= 100]
 print(f"Remaining articles after content length filter: {len(media)}")
 ```
 
-Document missing fields systematically (e.g. articles without tags, without domain)
+
+**Document missing fields systematically (e.g. articles without tags, without domain)**
 
 ```{python}
 #| echo: true
@@ -293,7 +303,7 @@ print(f"Chunks after removing empty entries: {len(media_has_chunk)}")
 
 ### Date
 
-Add date field to the media entity table (currently missing)
+**Add date field to the media entity table (currently missing)**
 
 ```{python}
 #| echo: true
@@ -306,7 +316,8 @@ print(media["date"].dtype)
 print(media[["media_id", "title", "date"]].head())
 ```
 
-Check for invalid or out-of-range date values
+
+**Check for invalid or out-of-range date values**
 
 ```{python}
 #| echo: true
@@ -334,24 +345,279 @@ After removing 1 empty and 3 near-empty articles, 16,383 articles remain within 
 
 ### Content Quality
 
-Strip HTML remnants (<br>, &amp;, &nbsp;, etc.)
+**Strip HTML remnants (<br>, &amp;, &nbsp;, etc.)**
+
+```{python}
+#| echo: true
+#| warning: false
+def clean_html(text):
+    # Decode HTML entities (&amp; → &, &nbsp; → space, etc.)
+    text = html.unescape(text)
+    # Remove HTML tags (<br>, <p>, etc.)
+    text = BeautifulSoup(text, "html.parser").get_text()
+    return text.strip()
+
+# Apply to full_content and chunked_content
+media["full_content"] = media["full_content"].apply(clean_html)
+media_has_chunk["chunked_content"] = media_has_chunk["chunked_content"].apply(clean_html)
+
+# Verify with a sample
+print(media["full_content"].iloc[0][:300])
+```
 
 
-Filter out boilerplate text (newsletter prompts, cookie banners, navigation text)
+**Filter out boilerplate text (newsletter prompts, cookie banners, navigation text)**
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Find most common short sentences across articles (potential boilerplate)
+def split_sentences(text):
+    return [s.strip() for s in re.split(r'[.!?]', str(text)) if 10 < len(s.strip()) < 150]
+
+all_sentences = media_has_chunk["chunked_content"].apply(split_sentences).explode()
+sentence_counts = Counter(all_sentences)
+
+# Show most common sentences
+for sentence, count in sentence_counts.most_common(20):
+    print(f"{count:5d}x | {sentence}")
+```
+
+After some re-runs this is the list of boilerplate patterns that we identified and removed. The patterns are based on the most common sentences found in the dataset, as well as manual inspection of the content. The goal is to remove common boilerplate text that does not contribute meaningful information to the analysis, such as subscription prompts, legal disclaimers, and navigation text.
+
+```{python}
+#| echo: true
+#| warning: false
+
+boilerplate_patterns = [
+    # Rights & legal
+    r"all rights reserved",
+    r"use of this site is governed by.*?(?=\.|$)",
+    r"reproduction in whole or in part.*?(?=\.|$)",
+    r"this site is protected by recaptcha.*?(?=\.|$)",
+    r"read our privacy policy",
+    r"by signing up, you agree.*?(?=\.|$)",
+    r"you may unsubscribe at any time",
+    r"use the unsubscribe link.*?(?=\.|$)",
+    r"in the emails to opt out at any time",
+    # Subscriptions & newsletters
+    r"thanks for subscribing",
+    r"you have successfully joined our subscriber list",
+    r"check your inbox for a confirmation email.*?(?=\.|$)",
+    r"join our daily and weekly newsletters.*?(?=\.|$)",
+    r"if you want to impress your boss.*?(?=\.|$)",
+    r"follow tns on your favorite social media.*?(?=\.|$)",
+    r"check out the latest featured and trending stories.*?(?=\.|$)",
+    r"you can expect all the best tns content.*?(?=\.|$)",
+    r"check out more vb newsletters.*?(?=\.|$)",
+    r"become a tns follower on linkedin",
+    # MarketBeat
+    r"marketbeat has identified.*?(?=\.|$)",
+    r"five stocks that top analysts.*?(?=\.|$)",
+    r"this story was reviewed by marketbeat.*?(?=\.|$)",
+    r"please send any questions or comments.*?(?=\.|$)",
+    # HPCwire / Tabor
+    r"a tabor communications publication",
+    r"hpcwire is a registered trademark.*?(?=\.|$)",
+    r"-- cray research inc",
+    r"-- sun microsystems,?\s*inc",
+    r"and sybase,?\s*inc",
+    r"recently announced the first benchmark results for sql server 11",
+    r"palo alto management group.*?(?=\.|$)",
+    r"-- a study by the",
+    r"the result represents a n",
+    r"new york, ny -- u",
+    # Foreign Policy
+    r"foreign policy magazine is a division.*?(?=\.|$)",
+    r"foreign policy, 655 15th st.*?(?=\.|$)",
+    r"i agree to abide by fp'?s comment guidelines",
+    # TNS / Data science publications
+    r"the world'?s leading publication for data science.*?(?=\.|$)",
+    r"your home for data science and a[il]",
+    r"community created roadmaps.*?(?=\.|$)",
+    r"we'?re so glad you'?re here",
+    r"where you can adjust your preferences.*?(?=\.|$)",
+    r"while you wait for your first tns newsletter",
+    # Generic
+    r"an error occured",
+    r"\(\s*read more\s*\)",
+    r"read more…",
+    r"\(\s*required\s*\)",
+    r"https:\s*//www",
+    r"by clicking submit.*?(?=\.|$)",
+    r"by submitting your email.*?(?=\.|$)",
+    r",?\s*you agree to the privacy policy.*?(?=\.|$)",
+    r"to share your email address with tfn.*?(?=\.|$)",
+    r"mountain view,?\s*calif",
+    # Boilerplate tool descriptions
+    r"the tool offers real-time insights.*?(?=\.|$)",
+    r"the tool generates executive summaries.*?(?=\.|$)",
+    r"the solution enhances due diligence.*?(?=\.|$)",
+]
+
+def remove_boilerplate(text):
+    if not isinstance(text, str):
+        return text
+    for pattern in boilerplate_patterns:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+    return text.strip()
+
+media["full_content"] = media["full_content"].apply(remove_boilerplate)
+media_has_chunk["chunked_content"] = media_has_chunk["chunked_content"].apply(remove_boilerplate)
+
+# Drop empty chunks
+media_has_chunk = media_has_chunk.dropna(subset=["chunked_content"])
+media_has_chunk = media_has_chunk[media_has_chunk["chunked_content"].str.strip() != ""]
+
+print(f"Chunks after cleaning: {len(media_has_chunk)}")
+```
+
+Let's verify that the boilerplate removal worked by checking the most common sentences again. The previously identified boilerplate sentences should no longer appear in the top results.
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Again: Show most common sentences
+all_sentences = media_has_chunk["chunked_content"].apply(split_sentences).explode()
+sentence_counts = Counter(all_sentences)
+
+for sentence, count in sentence_counts.most_common(20):
+    print(f"{count:5d}x | {sentence}")
+```
+
+After several iterations of boilerplate removal, residual patterns remain in less than 0.2% of all chunks. The high `nan` count in the sentence analysis is an artefact of the analysis function itself, not a data issue — empty chunks have already been removed via `dropna`. Further cleaning yields diminishing returns and risks removing legitimate content. We therefore consider the boilerplate removal sufficient for downstream NLP tasks.
 
 
-Identify and handle chunks that are too short (e.g. < 50 characters)
+**Check for suspiciously old content (mentions of outdated technologies, companies, etc.)**
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Investigate suspicious old content
+suspicious = media[media["full_content"].str.contains("Cray Research|Sun Microsystems|SQL Server 11", case=False, na=False)]
+print(f"Suspicious articles: {len(suspicious)}")
+suspicious[["media_id", "title", "date", "domain"]].head(10)
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Inspect the actual content of one suspicious article
+print(media[media["media_id"] == 28]["full_content"].values[0][:1000])
+```
+
+Upon inspection, the suspicious articles originate mostly from hpcwire and contain legitimate AI/HPC content. The old references (e.g. Cray Research, Sun Microsystems) appear to be historical comparisons embedded within otherwise relevant articles. We  herefore keep these articles as is.
 
 
-Detect and handle non-English articles (filter out or flag separately)
+**Identify and handle chunks that are too short (e.g. < 50 characters)**
 
+```{python}
+#| echo: true
+#| warning: false
+
+# Identify chunks that are too short (< 50 characters)
+short_chunks = media_has_chunk[media_has_chunk["chunked_content"].str.len() < 50]
+print(f"Short chunks (< 50 chars): {len(short_chunks)}")
+print(short_chunks["chunked_content"].head(20))
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Remove chunks that are too short (< 50 characters)
+media_has_chunk = media_has_chunk[media_has_chunk["chunked_content"].str.len() >= 50]
+
+print(f"Chunks after removing short entries: {len(media_has_chunk)}")
+```
+
+
+**Detect and handle non-English articles (filter out or flag separately)**
+
+```{python}
+#| echo: true
+#| warning: false
+def detect_language(text):
+    try:
+        return detect(str(text))
+    except LangDetectException:
+        return "unknown"
+
+# Detect language on full_content
+media["language"] = media["full_content"].apply(detect_language)
+
+# Show distribution
+print(media["language"].value_counts().head(10))
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Keep only English articles
+media = media[media["language"] == "en"]
+
+# Remove language column (no longer needed)
+media = media.drop(columns=["language"])
+
+# Sync media_has_chunk and media_has_tags
+media_has_chunk = media_has_chunk[media_has_chunk["media_id"].isin(media["media_id"])]
+media_has_tags = media_has_tags[media_has_tags["media_id"].isin(media["media_id"])]
+
+print(f"Articles after language filter: {len(media)}")
+print(f"Chunks after language filter: {len(media_has_chunk)}")
+print(f"Tags after language filter: {len(media_has_tags)}")
+```
 
 
 ### Tags
 
-Normalize tag variants (e.g. GenerativeAI vs Generative_AI vs generative-ai)
+**Normalize tag variants (e.g. GenerativeAI vs Generative_AI vs generative-ai)**
 
+```{python}
+#| echo: true
+#| warning: false
 
+# Inspect current tag distribution
+print(f"Total unique tags: {media_has_tags['tag'].nunique()}")
+print(media_has_tags["tag"].value_counts().head(20))
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check for case variants (e.g. "GenerativeAI" vs "generativeai" vs "Generativeai")
+tag_groups = media_has_tags.groupby(media_has_tags["tag"].str.lower())["tag"].unique()
+case_variants = tag_groups[tag_groups.apply(len) > 1]
+print(f"Tags with case variants: {len(case_variants)}")
+print(case_variants)
+```
+
+Tags are consistently formatted in CamelCase with no case variants detected.
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check for tags with leading/trailing whitespace
+whitespace_tags = media_has_tags[media_has_tags["tag"] != media_has_tags["tag"].str.strip()]
+print(f"Tags with whitespace issues: {len(whitespace_tags)}")
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+media_has_tags["tag"] = media_has_tags["tag"].str.strip()
+print("Whitespace removed.")
+```
+
+One tag with leading/trailing whitespace was stripped. No other normalization issues were detected. The tag data is now clean and ready for analysis.
 
 
 ## Exploratory Analysis
