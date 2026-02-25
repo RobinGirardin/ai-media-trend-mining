@@ -1,1 +1,16 @@
-﻿/.venv/
+/.venv/
+
+/.quarto/
+
+# Quarto rendered outputs
+notebook/*.html
+notebook/*_files/
+
+# Jupyter / Notebook cache
+**/.jupyter_cache/
+.ipynb_checkpoints/
+
+# Jupyter notebooks (nicht versionieren)
+*.ipynb
+
+/_freeze/

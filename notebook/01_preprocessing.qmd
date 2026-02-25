@@ -12,59 +12,58 @@ execute:
   cache: true
 ---
 
-In today’s fast-changing AI landscape, timely and accurate information is crucial.
-AI breakthroughs in generative models, robotics, natural language processing (NLP),
-and ethics are reshaping industries and society at large.
+In today’s fast-changing AI landscape, timely and accurate information is crucial. AI breakthroughs in generative models, robotics, natural language processing (NLP), and ethics are reshaping industries and society at large.
 
 This projects aims to advanced NLP techniques to:
 
-* study AI innovations and debates,
-* track emerging trends over time,
-* analyze sentiment around key technological and ethical issues,
-* experiment with building intelligent applications such as Q&A systems and news monitors (RAG).
+-   study AI innovations and debates,
+-   track emerging trends over time,
+-   analyze sentiment around key technological and ethical issues,
+-   experiment with building intelligent applications such as Q&A systems and news monitors (RAG).
 
-However, cleaning and exploration is necessary before any analysis.
-As such, this notebook's objectives are the following:
+However, cleaning and exploration is necessary before any analysis. As such, this notebook's objectives are the following:
 
-* Cleaning the `ai_media_dataset.csv` ([Kaggle Challenge Source](https://www.kaggle.com/datasets/jannalipenkova/ai-media-dataset?utm_source=chatgpt.com))
-* Exploratory Data Analysis
-* Temporal Analysis of Trends
-* Sentiment Analysis
-* Entities and Relationship Extraction
-* Construction of a Knowledge Graph
-
-```{python}
-#| label: set-root-folder
-#| echo: false
-import sys
-sys.path.append("../")
-```
+-   Cleaning the `ai_media_dataset.csv` ([Kaggle Challenge Source](https://www.kaggle.com/datasets/jannalipenkova/ai-media-dataset?utm_source=chatgpt.com))
+-   Exploratory Data Analysis
+-   Temporal Analysis of Trends
+-   Sentiment Analysis
+-   Entities and Relationship Extraction
+-   Construction of a Knowledge Graph
 
 ```{python}
 #| label: imports
 #| echo: false
 import sys
 import pandas as pd
+import os
 
 from src.lib import parse_string_into_list
+
+from bs4 import BeautifulSoup
+import html
+
+import re
+from collections import Counter
+
+from langdetect import detect, LangDetectException
 ```
 
 ```{python}
 #| label: data loading
 #| echo: false
-ai_media = pd.read_csv("../data/raw/ai_media_dataset.csv")
+ai_media = pd.read_csv("data/raw/ai_media_dataset.csv")
 ```
 
 ## Overview
 
 The raw datasets contains the following features.
 
-* `title`: the media's title
-* `date`: the media publication date
-* `content`: list of the media's content chunked by paragraph
-* `domain`: the publication URL domain
-* `url`: the URL of publication
-* `tags`: list of tags classifying the media 
+-   `title`: the media's title
+-   `date`: the media publication date
+-   `content`: list of the media's content chunked by paragraph
+-   `domain`: the publication URL domain
+-   `url`: the URL of publication
+-   `tags`: list of tags classifying the media
 
 ```{python}
 #| echo: false
@@ -73,13 +72,9 @@ ai_media.head()
 
 <br>
 
-Features such as `content` and `tags` would need, after parsing, to be standardized.
-Moreover, we observe different entities and relationships in the dataset.
-Structuring the data efficiently is key for efficient analysis.
+Features such as `content` and `tags` would need, after parsing, to be standardized. Moreover, we observe different entities and relationships in the dataset. Structuring the data efficiently is key for efficient analysis.
 
-Adopting a *Entity-Relationship Approach*, we observe the following entities and relationships.
-The schemas has been purposefully kept concise,	but modular.
-If needed, news entities **Chunk** or **Tags** could be created.
+Adopting a *Entity-Relationship Approach*, we observe the following entities and relationships. The schemas has been purposefully kept concise, but modular. If needed, news entities **Chunk** or **Tags** could be created.
 
 <br>
 
@@ -87,43 +82,39 @@ The rational behind separating each media from its chunked content or tags is th
 
 First, standardization of the feature is important to avoid anomaly.
 
-Second, both features are important features that will be used throghout the project under different form.
-For example, the chunked media's content is important to allow the future RAG to grasp on precise part of the corpus. 
-Alternatively, each chunk can be further associated with classes or sentiment for a deeper and granular understanding of the text.
-On top of that, a granular understand of the text is important for a *Knowledge Graph*.
-In the future, if each chunk were to be associated with new metrics, creating a unique *Chunk* entity would be wise.
+Second, both features are important features that will be used throghout the project under different form. For example, the chunked media's content is important to allow the future RAG to grasp on precise part of the corpus. Alternatively, each chunk can be further associated with classes or sentiment for a deeper and granular understanding of the text. On top of that, a granular understand of the text is important for a *Knowledge Graph*. In the future, if each chunk were to be associated with new metrics, creating a unique *Chunk* entity would be wise.
 
 Third, Knowledge Graph (see @sec-kg) requires us to understand the different entities of the data and their relationships. As such, keeping the schema evolving throughout the project will help us in the latter stage tremendously.
 
-:::{.callout-tip}
+::: callout-tip
 The goal is to keep this schema evolving throughout the project and our analysis requirements.
 :::
 
-:::{.columns}
-::: {.column}
-* **Media (Entity)**
-  * `media_id`
-  * `title`
-  * `url`
-  * `full_content`
-  * `domain`
+::: columns
+::: column
+-   **Media (Entity)**
+    -   `media_id`
+    -   `title`
+    -   `url`
+    -   `full_content`
+    -   `domain`
+    -   `date`
 :::
 
-::: {.column}
-* **Media_has_Chunk (Relationships):**
-  * `media_id`
-  * `chunked_content`
+::: column
+-   **Media_has_Chunk (Relationships):**
+    -   `media_id`
+    -   `chunked_content`
 :::
 
-::: {.column}
-* **Media_has_Tags (Relationship)**
-  * `media_id`
-  * `tag`
+::: column
+-   **Media_has_Tags (Relationship)**
+    -   `media_id`
+    -   `tag`
+:::
 :::
 
-:::
-
-## Initial Cleaning
+## Structural Normalization
 
 The initial cleaning process involves parsing both `tags` and `content` variable, as well as extracting the data into the appropriate schemas.
 
@@ -140,8 +131,8 @@ stg_media["full_content"] = (
 	.apply(lambda content: "".join(parse_string_into_list(content)))
 )
 media = (
-	ai_media
-	.loc[:, ["title", "domain", "url", "full_content"]]
+	stg_media
+	.loc[:, ["title", "domain", "url", "full_content", "date"]]
 	.reset_index()
 	.rename(columns={"index": "media_id"})
 )
@@ -188,87 +179,481 @@ media_has_tags = (
 <br>
 
 ```{python}
+#| label: storing-processed-data
+#| eval: false
+os.makedirs("data/processed", exist_ok=True)
+
+media.to_csv("data/processed/media.csv", index=False)
+media_has_chunk.to_csv("data/processed/media_has_chunk.csv", index=False)
+media_has_tags.to_csv("data/processed/media_has_tags.csv", index=False)
+```
+
+```{python}
 #| echo: false
-media = pd.read_csv("../data/processed/media.csv")
-media_has_chunk = pd.read_csv("../data/processed/media_has_chunk.csv")
-media_has_tags = pd.read_csv("../data/processed/media_has_tags.csv")
+media = pd.read_csv("data/processed/media.csv")
+media_has_chunk = pd.read_csv("data/processed/media_has_chunk.csv")
+media_has_tags = pd.read_csv("data/processed/media_has_tags.csv")
 
 media.head()
 ```
 
-:::{.columns}
-
-:::{.column style="padding-right: 2rem;"}
-
+::: columns
+::: {.column style="padding-right: 2rem;"}
 ```{python}
 #| echo: false
 media_has_chunk.head()
 ```
 :::
 
-:::{.column style="padding-left: 2rem;"}
-
+::: {.column style="padding-left: 2rem;"}
 ```{python}
 #| echo: false
 media_has_tags.head()
 ```
 :::
-
 :::
 
-## Further Cleaning 
+## Data Cleaning & Quality Control
 
-Although the initial cleaning took care of the immediate necessities, task-specific cleaning operation needs to be undertaken.
-Indeed, each analysis and models needs different type of inputs to function best.
+### Duplicates & Missing Values
 
-:::{.callout-warning}
-The rest of this section needs to be implemented and, in my opinion, strongly depends on the tasks ahead.
+**Checking for duplicate articles, either by identical URL or by identical content across different domains.**
 
-**Note:** I (Robin) haven't had a look at the provided preprocessing examples.
-As such, this previous claim or focus might need to change.
-:::
+```{python}
+#| echo: true
+#| warning: false
+
+# Remove duplicate articles by URL
+duplicates_url = media[media.duplicated(subset="url", keep=False)]
+print(f"Duplicate URLs found: {len(duplicates_url)}")
+media = media.drop_duplicates(subset="url", keep="first")
+
+# Remove duplicate articles by identical content
+duplicates_content = media[media.duplicated(subset="full_content", keep=False)]
+print(f"Duplicate content found: {len(duplicates_content)}")
+media = media.drop_duplicates(subset="full_content", keep="first")
+
+print(f"Remaining articles after deduplication: {len(media)}")
+```
+
+
+**Check full_content for empty strings or very short texts (near-empty articles)**
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Inspect short articles before deciding on threshold
+media[media["full_content"].str.len() < 100][["title", "full_content"]].head(10)
+```
+
+Inspection reveals 3 near-empty articles. Two contain only redirect notices ("updated edition at...") and one has no meaningful content. All three are removed using a 100-character threshold.
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check for empty or very short full_content (threshold: 100 characters)
+empty_content = media[media["full_content"].isna() | (media["full_content"].str.strip() == "")]
+short_content = media[media["full_content"].str.len() < 100]
+
+print(f"Empty content: {len(empty_content)}")
+print(f"Very short content (< 100 chars): {len(short_content)}")
+
+# Remove empty and very short articles
+media = media[media["full_content"].str.len() >= 100]
+print(f"Remaining articles after content length filter: {len(media)}")
+```
+
+**Document missing fields systematically (e.g. articles without tags, without domain)**
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check for missing values across all tables
+print("=== media ===")
+print(media.isnull().sum())
+print(f"Total articles: {len(media)}\n")
+
+print("=== media_has_chunk ===")
+print(media_has_chunk.isnull().sum())
+print(f"Total chunks: {len(media_has_chunk)}\n")
+
+print("=== media_has_tags ===")
+print(media_has_tags.isnull().sum())
+print(f"Total tags: {len(media_has_tags)}\n")
+
+# Articles without any tag
+articles_without_tags = media[~media["media_id"].isin(media_has_tags["media_id"])]
+print(f"Articles without tags: {len(articles_without_tags)}")
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Remove empty chunks
+media_has_chunk = media_has_chunk.dropna(subset=["chunked_content"])
+media_has_chunk = media_has_chunk[media_has_chunk["chunked_content"].str.strip() != ""]
+
+print(f"Chunks after removing empty entries: {len(media_has_chunk)}")
+```
+
+### Date
+
+**Add date field to the media entity table (currently missing)**
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Parse date as Datetime type
+media["date"] = pd.to_datetime(media["date"])
+
+print(media["date"].dtype)
+print(media[["media_id", "title", "date"]].head())
+```
+
+**Check for invalid or out-of-range date values**
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check for invalid or out-of-range date values
+# Dataset should cover September 2024 – September 2025
+date_min = pd.Timestamp("2024-09-01")
+date_max = pd.Timestamp("2025-09-30")
+
+out_of_range = media[(media["date"] < date_min) | (media["date"] > date_max)]
+print(f"Out-of-range dates: {len(out_of_range)}")
+print(out_of_range[["media_id", "title", "date"]])
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+print(f"Total articles: {len(media)}")
+```
+
+After removing 1 empty and 3 near-empty articles, 16,383 articles remain within the expected date range (September 2024 – September 2025). No further action required.
+
+
+### Content Quality
+
+**Strip HTML remnants (<br>, &amp;, &nbsp;, etc.)**
+
+```{python}
+#| echo: true
+#| warning: false
+def clean_html(text):
+    # Decode HTML entities (&amp; → &, &nbsp; → space, etc.)
+    text = html.unescape(text)
+    # Remove HTML tags (<br>, <p>, etc.)
+    text = BeautifulSoup(text, "html.parser").get_text()
+    return text.strip()
+
+# Apply to full_content and chunked_content
+media["full_content"] = media["full_content"].apply(clean_html)
+media_has_chunk["chunked_content"] = media_has_chunk["chunked_content"].apply(clean_html)
+
+# Verify with a sample
+print(media["full_content"].iloc[0][:300])
+```
+
+**Filter out boilerplate text (newsletter prompts, cookie banners, navigation text)**
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Find most common short sentences across articles (potential boilerplate)
+def split_sentences(text):
+    return [s.strip() for s in re.split(r'[.!?]', str(text)) if 10 < len(s.strip()) < 150]
+
+all_sentences = media_has_chunk["chunked_content"].apply(split_sentences).explode()
+sentence_counts = Counter(all_sentences)
+
+# Show most common sentences
+for sentence, count in sentence_counts.most_common(20):
+    print(f"{count:5d}x | {sentence}")
+```
+
+After some re-runs this is the list of boilerplate patterns that we identified and removed. The patterns are based on the most common sentences found in the dataset, as well as manual inspection of the content. The goal is to remove common boilerplate text that does not contribute meaningful information to the analysis, such as subscription prompts, legal disclaimers, and navigation text.
+
+```{python}
+#| echo: true
+#| warning: false
+
+boilerplate_patterns = [
+    # Rights & legal
+    r"all rights reserved",
+    r"use of this site is governed by.*?(?=\.|$)",
+    r"reproduction in whole or in part.*?(?=\.|$)",
+    r"this site is protected by recaptcha.*?(?=\.|$)",
+    r"read our privacy policy",
+    r"by signing up, you agree.*?(?=\.|$)",
+    r"you may unsubscribe at any time",
+    r"use the unsubscribe link.*?(?=\.|$)",
+    r"in the emails to opt out at any time",
+    # Subscriptions & newsletters
+    r"thanks for subscribing",
+    r"you have successfully joined our subscriber list",
+    r"check your inbox for a confirmation email.*?(?=\.|$)",
+    r"join our daily and weekly newsletters.*?(?=\.|$)",
+    r"if you want to impress your boss.*?(?=\.|$)",
+    r"follow tns on your favorite social media.*?(?=\.|$)",
+    r"check out the latest featured and trending stories.*?(?=\.|$)",
+    r"you can expect all the best tns content.*?(?=\.|$)",
+    r"check out more vb newsletters.*?(?=\.|$)",
+    r"become a tns follower on linkedin",
+    # MarketBeat
+    r"marketbeat has identified.*?(?=\.|$)",
+    r"five stocks that top analysts.*?(?=\.|$)",
+    r"this story was reviewed by marketbeat.*?(?=\.|$)",
+    r"please send any questions or comments.*?(?=\.|$)",
+    # HPCwire / Tabor
+    r"a tabor communications publication",
+    r"hpcwire is a registered trademark.*?(?=\.|$)",
+    r"-- cray research inc",
+    r"-- sun microsystems,?\s*inc",
+    r"and sybase,?\s*inc",
+    r"recently announced the first benchmark results for sql server 11",
+    r"palo alto management group.*?(?=\.|$)",
+    r"-- a study by the",
+    r"the result represents a n",
+    r"new york, ny -- u",
+    # Foreign Policy
+    r"foreign policy magazine is a division.*?(?=\.|$)",
+    r"foreign policy, 655 15th st.*?(?=\.|$)",
+    r"i agree to abide by fp'?s comment guidelines",
+    # TNS / Data science publications
+    r"the world'?s leading publication for data science.*?(?=\.|$)",
+    r"your home for data science and a[il]",
+    r"community created roadmaps.*?(?=\.|$)",
+    r"we'?re so glad you'?re here",
+    r"where you can adjust your preferences.*?(?=\.|$)",
+    r"while you wait for your first tns newsletter",
+    # Generic
+    r"an error occured",
+    r"\(\s*read more\s*\)",
+    r"read more…",
+    r"\(\s*required\s*\)",
+    r"https:\s*//www",
+    r"by clicking submit.*?(?=\.|$)",
+    r"by submitting your email.*?(?=\.|$)",
+    r",?\s*you agree to the privacy policy.*?(?=\.|$)",
+    r"to share your email address with tfn.*?(?=\.|$)",
+    r"mountain view,?\s*calif",
+    # Boilerplate tool descriptions
+    r"the tool offers real-time insights.*?(?=\.|$)",
+    r"the tool generates executive summaries.*?(?=\.|$)",
+    r"the solution enhances due diligence.*?(?=\.|$)",
+]
+
+def remove_boilerplate(text):
+    if not isinstance(text, str):
+        return text
+    for pattern in boilerplate_patterns:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+    return text.strip()
+
+media["full_content"] = media["full_content"].apply(remove_boilerplate)
+media_has_chunk["chunked_content"] = media_has_chunk["chunked_content"].apply(remove_boilerplate)
+
+# Drop empty chunks
+media_has_chunk = media_has_chunk.dropna(subset=["chunked_content"])
+media_has_chunk = media_has_chunk[media_has_chunk["chunked_content"].str.strip() != ""]
+
+print(f"Chunks after cleaning: {len(media_has_chunk)}")
+```
+
+Let's verify that the boilerplate removal worked by checking the most common sentences again. The previously identified boilerplate sentences should no longer appear in the top results.
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Again: Show most common sentences
+all_sentences = media_has_chunk["chunked_content"].apply(split_sentences).explode()
+sentence_counts = Counter(all_sentences)
+
+for sentence, count in sentence_counts.most_common(20):
+    print(f"{count:5d}x | {sentence}")
+```
+
+After several iterations of boilerplate removal, residual patterns remain in less than 0.2% of all chunks. The high `nan` count in the sentence analysis is an artefact of the analysis function itself, not a data issue — empty chunks have already been removed via `dropna`. Further cleaning yields diminishing returns and risks removing legitimate content. We therefore consider the boilerplate removal sufficient for downstream NLP tasks.
+
+
+**Check for suspiciously old content (mentions of outdated technologies, companies, etc.)**
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Investigate suspicious old content
+suspicious = media[media["full_content"].str.contains("Cray Research|Sun Microsystems|SQL Server 11", case=False, na=False)]
+print(f"Suspicious articles: {len(suspicious)}")
+suspicious[["media_id", "title", "date", "domain"]].head(10)
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Inspect the actual content of one suspicious article
+print(media[media["media_id"] == 28]["full_content"].values[0][:1000])
+```
+
+Upon inspection, the suspicious articles originate mostly from hpcwire and contain legitimate AI/HPC content. The old references (e.g. Cray Research, Sun Microsystems) appear to be historical comparisons embedded within otherwise relevant articles. We  herefore keep these articles as is.
+
+
+**Identify and handle chunks that are too short (e.g. < 50 characters)**
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Identify chunks that are too short (< 50 characters)
+short_chunks = media_has_chunk[media_has_chunk["chunked_content"].str.len() < 50]
+print(f"Short chunks (< 50 chars): {len(short_chunks)}")
+print(short_chunks["chunked_content"].head(20))
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Remove chunks that are too short (< 50 characters)
+media_has_chunk = media_has_chunk[media_has_chunk["chunked_content"].str.len() >= 50]
+
+print(f"Chunks after removing short entries: {len(media_has_chunk)}")
+```
+
+
+**Detect and handle non-English articles (filter out or flag separately)**
+
+```{python}
+#| echo: true
+#| warning: false
+def detect_language(text):
+    try:
+        return detect(str(text))
+    except LangDetectException:
+        return "unknown"
+
+# Detect language on full_content
+media["language"] = media["full_content"].apply(detect_language)
+
+# Show distribution
+print(media["language"].value_counts().head(10))
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Keep only English articles
+media = media[media["language"] == "en"]
+
+# Remove language column (no longer needed)
+media = media.drop(columns=["language"])
+
+# Sync media_has_chunk and media_has_tags
+media_has_chunk = media_has_chunk[media_has_chunk["media_id"].isin(media["media_id"])]
+media_has_tags = media_has_tags[media_has_tags["media_id"].isin(media["media_id"])]
+
+print(f"Articles after language filter: {len(media)}")
+print(f"Chunks after language filter: {len(media_has_chunk)}")
+print(f"Tags after language filter: {len(media_has_tags)}")
+```
+
+### Tags
+
+**Normalize tag variants (e.g. GenerativeAI vs Generative_AI vs generative-ai)**
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Inspect current tag distribution
+print(f"Total unique tags: {media_has_tags['tag'].nunique()}")
+print(media_has_tags["tag"].value_counts().head(20))
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check for case variants (e.g. "GenerativeAI" vs "generativeai" vs "Generativeai")
+tag_groups = media_has_tags.groupby(media_has_tags["tag"].str.lower())["tag"].unique()
+case_variants = tag_groups[tag_groups.apply(len) > 1]
+print(f"Tags with case variants: {len(case_variants)}")
+print(case_variants)
+```
+
+Tags are consistently formatted in CamelCase with no case variants detected.
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check for tags with leading/trailing whitespace
+whitespace_tags = media_has_tags[media_has_tags["tag"] != media_has_tags["tag"].str.strip()]
+print(f"Tags with whitespace issues: {len(whitespace_tags)}")
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+media_has_tags["tag"] = media_has_tags["tag"].str.strip()
+print("Whitespace removed.")
+```
+
+One tag with leading/trailing whitespace was stripped. No other normalization issues were detected. The tag data is now clean and ready for analysis.
+
+
+
 
 ## Exploratory Analysis
 
-:::{.callout-warning}
+::: callout-warning
 This section needs to be implemented
 :::
 
 ## Temporal Analysis
 
-:::{.callout-warning}
+::: callout-warning
 This section needs to be implemented
 :::
 
 ## Sentiment Analysis
 
-:::{.callout-warning}
+::: callout-warning
 This section needs to be implemented
 :::
 
 ## Entities and Relationship Extraction
 
-:::{.callout-warning}
+::: callout-warning
 This section needs to be implemented, though what exactly needs to extracted and how depends on the core questions that we want to answer.
 :::
 
 ## Knowledge Graph {#sec-kg}
- 
-A knowledge graph is a way of depicting data in a highly relational way, akin to a mindmap.
-This allows a deep understanding and precise querying of entities and their relationships.
 
-Moreover, its data model mainly consists of 3 main components: node, relationships and properties.
-A node is corresponds to a data entities, while relationships are how different entities relate to each other.
-Moreover, properties are way to describe **both** node and relationships.
+A knowledge graph is a way of depicting data in a highly relational way, akin to a mindmap. This allows a deep understanding and precise querying of entities and their relationships.
 
-:::{.callout-tip}
+Moreover, its data model mainly consists of 3 main components: node, relationships and properties. A node is corresponds to a data entities, while relationships are how different entities relate to each other. Moreover, properties are way to describe **both** node and relationships.
+
+::: callout-tip
 See [Neo4j - Data Modelling](https://neo4j.com/docs/getting-started/data-modeling/) for more informations
 :::
 
-Its purpose, akin to a mindmap, is to create a precise and deep map of knowledge.
-Quality, rather that quantity, is were a Knowledge Graph seems to truly shines. 
-As such, in the following section, we aim a creating a graph that focus on answering the following questions.
+Its purpose, akin to a mindmap, is to create a precise and deep map of knowledge. Quality, rather that quantity, is were a Knowledge Graph seems to truly shines. As such, in the following section, we aim a creating a graph that focus on answering the following questions.
 
-:::{.callout-warning}
+::: callout-warning
 This section needs to be implemented, though staring by figuring out the main questions we want to answer is a good starting point.
 :::
