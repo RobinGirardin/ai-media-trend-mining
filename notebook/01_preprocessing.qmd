@@ -90,6 +90,7 @@ The goal is to keep this schema evolving throughout the project and our analysis
     -   `url`
     -   `full_content`
     -   `domain`
+    -   `date`
 :::
 
 ::: column
