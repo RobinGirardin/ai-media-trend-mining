@@ -638,9 +638,226 @@ This section needs to be implemented
 
 ## Entities and Relationship Extraction
 
-::: callout-warning
-This section needs to be implemented, though what exactly needs to extracted and how depends on the core questions that we want to answer.
-:::
+Previous section focused on explorations and trends analysis.
+This section builds on-top of them, extracting the main entities of the news articles and their relationships.
+Those extracted information will be the core components of our knowledge graph.
+
+Since our knowledge needs to represent the articles content and map it faithfully,
+let's have a look at the main entities present in the articles.
+
+### Entities Distribution
+
+```{python}
+import spacy
+import numpy as np
+from typing import List
+import time
+import re
+from collections import Counter
+import pprint
+nlp = spacy.load("en_core_web_trf")
+```
+
+Using `spaCy` built-in entity recognizer, we can get an generally overview that the main entities that the articles contains, as well as potential relationships.
+
+```{python}
+# Source - https://stackoverflow.com/a/70188495
+# Posted by aab
+# Retrieved 2026-02-26, License - CC BY-SA 4.0
+
+entities = {ent: spacy.explain(ent) for ent in nlp.get_pipe("ner").labels}
+pprint.pp("List of recognized entities by spacY and their description:")
+pprint.pp(entities)
+```
+
+Running the following multiple times, we observe that organizations (`ORG`), products (`PRODUCT`), persons (`PERSON`) and dates (`DATE`)
+consistently rank among the most present entities. They are followed by numerical values such as money (`MONEY`) or percentages (`PERCENT`). Alternatively, location, such as cities or countries are also well-documented ("GPE").
+
+Without context, it hard to know whether persons are are public figures, researchers, CEO, or even the author himself.
+Organizations `ORG` are mostly be public institutions, such as universities, or privates companies.
+
+Products are most often AI products or model name, such as "Claude 3.5", while
+
+Overall, we retain 3 major entities: persons, organizations, products and countries.
+The rests can be considered as informations suplementing those entities and their relationships, mainly money, such as how much a model costed, or date, as when the model was published.
+
+```{python}
+list_articles_content = media.full_content.values
+np.random.seed(25)
+sample_articles = np.random.choice(list_articles_content, size=30)
+sample_content = "".join(sample_articles)
+docs = nlp(sample_content)
+
+ent_list = [token.ent_type_ for token in docs if token.ent_type != ""]
+for ent, count in Counter(ent_list).most_common(20):
+	print(f"{ent}: {count}")
+```
+
+```{python}
+mapping = {token.text: token.ent_type_ for token in docs[:10] if token.ent_type_ != ""}
+pprint.pp(mapping)
+```
+
+Combining those entities with the articles data that we have: publisher and date of publications and tags, we can effectively map trends and AI research developement.
+
+```{python}
+#| code-fold: true
+
+import langextract as lx
+import textwrap
+
+# 1. Define the prompt and extraction rules
+prompt = textwrap.dedent("""\
+    	Extract entities such as organizations name, products such as AI models, persons and countries or locations.
+	Provide meaningful attributes for each entity to add context.
+	For each entities, extract their relationships with each other.
+	A extraction of class "relationship" must always relate to 2 entities minimum.
+    Use exact text for extractions. Do not paraphrase or overlap entities.
+    """)
+
+# 2. Provide a high-quality example to guide the model
+examples = [
+    lx.data.ExampleData(
+        text="Carnegie Mellon University’s new Robotics Innovation Center (RIC) has signed robotics company FieldAI as its first corporate tenant ahead of the facility’s formal opening in February 2026, embedding the AI-driven robotics unicorn into a 2,500 sq ft lab to advance physical AI and real-world robot deployment in complex environments",
+        extractions=[
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Carnegie Mellon University",
+                attributes={"type": "university"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="new Robotics Innovation Center (RIC)",
+                attributes={"type": "research_center"}
+            ),
+            lx.data.Extraction(
+                extraction_class="relationship",
+                extraction_text="new Robotics Innovation Center (RIC)",
+		attributes={"type": "affiliation", "party": ["Carnegie Mellon University", "Robotics Innovation Center (RIC)"], "money_amount": "unkown", "beneficiary": "unkown"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="FieldAI",
+                attributes={"type": "company"}
+            ),
+            lx.data.Extraction(
+                extraction_class="relationship",
+                extraction_text="has signed robotics company FieldAI as its first corporate tenant in February 2026",
+		attributes={"type": "partnership", "date": "February 2026", "party": ["Carnegie Mellon University", "FieldAI"], "money_amount": "unkown", "beneficiary": "FieldAI" }
+            ),
+	]
+	),
+    lx.data.ExampleData(
+        text="Robotics startup Figure AI Inc. exceeded $1 billion in Series C funding at a $39 billion post-money valuation in September 2025, enabling it to scale production of its AI-powered humanoid robots (including Figure 02 and Figure 03) and expand the Helix embodied-intelligence platform with major investors such as NVIDIA, Intel Capital, and Brookfield Asset Management.",
+        extractions=[
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Figure AI Inc.",
+                attributes={"type": "company"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="its AI-powered humanoid robots",
+		attributes={"type": "product", "owned_by": "Figure AI Inc."}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Helix embodied-intelligence platform",
+		attributes={"type": "product", "owned_by": "Figure AI Inc.", "product_name": "Helix embodied-intelligence platform"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="NVIDIA",
+                attributes={"type": "company"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Intel Capital",
+                attributes={"type": "company"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Brookfield Asset Management",
+                attributes={"type": "company"}
+            ),
+            lx.data.Extraction(
+                extraction_class="relationship",
+                extraction_text="exceeded $1 billion in Series C funding",
+		attributes={"type": "partnership", "party": ["Figure AI Inc", "NVIDIA", "Intel Capital", "Brookfield Asset Management"], "money_amount": "1000000000", "beneficiary": "Figure AI Inc"}
+            ),
+        ]
+    ),
+    lx.data.ExampleData(
+        text="Google announced it is folding its AI robotics project Intrinsic back into the parent company as a dedicated group aligned with Google DeepMind to accelerate development of AI models like Gemini Robotics for physical control systems, marking a strategic shift to unify robotics software and embodied AI under core Alphabet AI teams",
+        extractions=[
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Google",
+                attributes={"type": "company"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="its AI robotics project Intrinsic",
+		attributes={"type": "product", "owned_by": "Figure AI Inc.", "product_name": "Intrinsic"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Google DeepMind",
+		attributes={"type": "research_group", "owned_by": "Google"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="accelerate development of AI models like Gemini Robotics",
+		attributes={"type": "product", "owned_by": "Google", "product_name": "Gemini Robotics"}
+            ),
+        ]
+    )
+]
+```
+
+For a easily evaluable test case, let's take a small article using a lightweight open-source model.
+On the first try, the model detected entities and relationships mostly successfully, with a few detected entities bringing few information.
+Examples are isolated "financial_amount" extraction, that can be bound to no other entities.
+
+That said, isolated extracted entities could be removed and not taken into account when constructing the graph.
+
+```{python}
+media["content_length"] = media.full_content.str.len()
+sample = media.sort_values(by="content_length", ascending=True).reset_index().iloc[5]
+# The input text to be processed
+input_text = sample.full_content
+
+print("**Article's Content:** \n", input_text)
+# Run the extraction
+result = lx.extract(
+    text_or_documents=input_text,
+    prompt_description=prompt,
+    examples=examples,
+    model_id="gemma3:27b",  # Automatically selects Ollama provider
+    model_url="http://localhost:11434",
+    fence_output=False,
+    use_schema_constraints=False
+)
+```
+
+```{python}
+#| eval: false
+lx.io.save_annotated_documents([result], output_name="extraction_results.jsonl", output_dir=".")
+html_content = lx.visualize("notebook/extraction_results.jsonl")
+with open("notebook/visualization.html", "w") as f:
+    if hasattr(html_content, 'data'):
+        f.write(html_content.data)  # For Jupyter/Colab
+    else:
+        f.write(html_content)
+```
+
+<br>
+
+![](visualization.html){width="100%" height="600px"}
+
+Considering the relatively successfull entity and relationsip extraction, the next step would be to reflect on storage.
+The main purpose of this step is to extract meaningful news information from the article, enabling better tracking of trends and new information.
+In the next section, we'll explore how we can combine the raw article data with the extracted information throughout this report in a comprehensive knowledge graph.
 
 ## Knowledge Graph {#sec-kg}
 
