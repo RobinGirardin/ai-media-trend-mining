@@ -632,9 +632,14 @@ This section needs to be implemented
 
 ## Sentiment Analysis
 
-::: callout-warning
-This section needs to be implemented
-:::
+Sentiment analysis  is a crucial analysis whose goal is to extract sentiment out of a text.
+It is often news in product reviews to estimate customer satisfaction or for social analysis on different media.
+The sentiment is often expressed, either in a continuous score between -1 (negative) and 1 (positive), or in discrete value: -1, 0 (neutral), 1.
+
+In our case, the goal is somewhat similar: we want to extract sentiment out of news articles.
+The goal is to gather an general understanding of how is the AI media discourse percieved, thus potentially extrapolating on the market reliability or stability.
+Naturally, sentiment is inherently subjective. Furthermore, the result effectively depends on a model and unsupervised data.
+As such, **isolated** are to be taken lightly.
 
 ## Entities and Relationship Extraction
 
