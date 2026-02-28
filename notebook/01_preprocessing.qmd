@@ -641,7 +641,7 @@ for abbr in candidates:
         print(f"{abbr}: {matches}")
 ```
 
-We deliberately skip acronym and abbreviation handling. The tags use specific, intentional abbreviations (e.g. `GPT`, `BERT`, `RAG`) that refer to distinct models and technologies — not inconsistencies. RAG and transformer-based embeddings handle abbreviations in free text implicitly, making normalization unnecessary for our downstream tasks.
+We deliberately skip further acronym and abbreviation handling. Our check shows that the tags use specific, intentional abbreviations (e.g. `GPT`, `BERT`, `RAG`) that refer to distinct models and technologies - no inconsistencies. And: RAG and transformer-based embeddings handle abbreviations in free text implicitly, making normalization unnecessary for our downstream tasks.
 
 
 ## Exploratory Analysis
