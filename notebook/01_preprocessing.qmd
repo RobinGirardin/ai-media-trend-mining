@@ -36,6 +36,7 @@ However, cleaning and exploration is necessary before any analysis. As such, thi
 import sys
 import pandas as pd
 import os
+from scipy.stats import sem
 from typing import List
 from src.lib import parse_string_into_list
 import time
@@ -48,6 +49,7 @@ import seaborn as sns
 import re
 from collections import Counter
 
+from transformers import pipeline
 from langdetect import detect, LangDetectException
 ```
 
@@ -659,6 +661,8 @@ Insert here a average token length per discussion if not already.
 :::
 
 ```{python}
+#| message: false
+#| warning: false
 model_path = "cardiffnlp/twitter-roberta-base-sentiment-latest"
 sentiment_task = pipeline("sentiment-analysis", model=model_path, tokenizer=model_path)
 ```
@@ -726,6 +730,8 @@ plt.tight_layout()
 plt.show()
 ```
 
+:::{.callout-note collapse="true", summary="Pipeline"}
+
 ```{python}
 #| eval: false
 articles = media_has_chunk.chunked_content.values.tolist()
@@ -741,6 +747,8 @@ if "sentiment" in media_has_chunk.columns:
 with open("notebook/sentiment_analysis_results.json", "w") as fb:
 	json.dump(result, fb)
 ```
+
+:::
 
 Now that we have all the chunks analyzse, we'll aggregate the results to each media.
 For this, 'negative' sentiment will have the value '-1', 'neutral' sentiment will be '0' and '1' sentiment will be '1'.
@@ -766,6 +774,7 @@ Good, now we have a good setup to finally do some analyzis.
 ```{python}
 media_with_tag = media.merge(media_has_tags, on="media_id", how="left")
 ```
+
 Broadly, we could look at the average sentiment per tag.
 Morevoer, since tags represent also represent companies or products, this is helpful in identiying public sentiment about particular technologies.
 Now, some tag have very poor representation throughout the media and thus would represent a biased view of the population.
@@ -799,7 +808,14 @@ However, it is important that, since the distribution isn't normally distributed
 
 ```{python}
 # Compute the less biased metric 
-sentiment_per_tag = media_with_tag.groupby("tag").sentiment.agg(sent_mean="mean", sent_sde="sem")
+sentiment_per_tag = (
+    media_with_tag
+    .groupby("tag")
+    .agg(
+        sent_mean=("sentiment", "mean"),
+        sent_sde=("sentiment", "sem")
+    )
+)
 sentiment_per_tag["weigh_sent"] = sentiment_per_tag.sent_mean * sentiment_per_tag.sent_sde
 
 # Get the best and worse tags
@@ -825,15 +841,22 @@ Seeing that this plot only highlight the top and worse weighted sentiment score,
 
 ```{python}
 # Compute the less biased metric 
-sentiment_per_tag = media_with_tag.groupby("domain").sentiment.agg(sent_mean="mean", sent_sde="sem")
-sentiment_per_tag["weigh_sent"] = sentiment_per_tag.sent_mean * sentiment_per_tag.sent_sde
+sentiment_per_domain = (
+    media_with_tag
+    .groupby("domain")
+    .agg(
+        sent_mean=("sentiment", "mean"),
+        sent_sde=("sentiment", "sem")
+    )
+)
+sentiment_per_domain["weigh_sent"] = sentiment_per_tag.sent_mean * sentiment_per_domain.sent_sde
 
-# Get the best and worse tags
-top_5_tag = sentiment_per_tag.sort_values(by="weigh_sent", ascending=False).iloc[:5]
-worse_5_tag = sentiment_per_tag.sort_values(by="weigh_sent", ascending=True).iloc[:5]
+# Get the best and worse domains
+top_5_domain = sentiment_per_domain.sort_values(by="weigh_sent", ascending=False).iloc[:5]
+worse_5_domain = sentiment_per_domain.sort_values(by="weigh_sent", ascending=True).iloc[:5]
 
 # Plot
-pd.concat([top_5_tag, worse_5_tag], axis=0).plot(kind="bar")
+pd.concat([top_5_domain, worse_5_domain], axis=0).plot(kind="bar")
 plt.title("Weighted Sentiment for Top/Bottom 5 Media")
 plt.tight_layout()
 plt.show()
