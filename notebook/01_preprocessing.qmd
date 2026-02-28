@@ -834,7 +834,6 @@ Abbreviations such as U.S., S.C., and E.U. are preserved.
 #| echo: true
 #| warning: false
 
-import re
 
 def fix_punct_spacing(text: str) -> str:
     """
@@ -877,6 +876,166 @@ punct_hits_chunks = int(
 print("After normalization:")
 print(f"- MEDIA remaining spacing issues: {punct_hits_media:,}")
 print(f"- CHUNKS remaining spacing issues: {punct_hits_chunks:,}")
+
+```
+
+
+
+
+```{python}
+#| label: save_to_file
+#| eval: true
+
+
+
+# Data Storage Format
+
+# Processed datasets are stored in Parquet format rather than CSV.
+# Unlike CSV, Parquet preserves complex data types such as list-based token columns (e.g., tokens, lemmas) without converting them into plain strings. This ensures structural integrity of the NLP preprocessing pipeline and avoids additional parsing overhead when reloading the data.
+
+# Additionally, Parquet provides improved read/write performance and more efficient storage through columnar compression, making it better suited for large-scale text processing tasks.
+
+media.to_parquet("data/processed/media_clean.parquet", index=False)
+media_has_chunk.to_parquet("data/processed/media_has_chunk_clean.parquet", index=False)
+
+
+```
+
+
+
+### Tokenization
+
+We use spaCy’s lightweight blank("en") tokenizer to generate linguistically consistent tokens. This approach preserves reliable token boundaries while significantly reducing computational overhead compared to loading a full language model. The blank pipeline provides efficient handling of punctuation and token segmentation, while remaining fully compatible with subsequent stopword removal and normalization steps.
+
+```{python}
+#| label: tokenization
+#| eval: true
+# tokenizations was done in Py as we were able to use 8 parallel processing while quarto uses only 1.
+
+import pandas as pd
+import spacy
+
+# =====================
+# TOKENIZING MEDIA
+# =====================
+
+media = pd.read_parquet("data/processed/media_clean.parquet")
+
+nlp = spacy.blank("en")
+
+def tokenize_doc(doc):
+    return [t.text.lower() for t in doc if t.is_alpha]
+
+texts = media["full_content"].fillna("").tolist()
+
+docs = nlp.pipe(texts, batch_size=1000, n_process=1)
+media["tokens"] = [tokenize_doc(d) for d in docs]
+
+media.to_parquet("data/processed/media_tls.parquet", index=False)
+
+print("Example tokens:", media["tokens"].iloc[0][:20])
+
+
+
+# TOKENIZING CHUNKS
+
+
+media_has_chunk = pd.read_parquet("data/processed/media_has_chunk_clean.parquet")
+
+nlp = spacy.blank("en")  # reinitialize is fine
+
+texts = media_has_chunk["chunked_content"].fillna("").tolist()
+
+docs = nlp.pipe(texts, batch_size=2000, n_process=1)
+media_has_chunk["tokens"] = [tokenize_doc(d) for d in docs]
+
+media_has_chunk.to_parquet("data/processed/media_has_chunk_tls.parquet", index=False)
+
+print("Example tokens:", media_has_chunk["tokens"].iloc[0][:20])
+```
+
+
+### Stopword removal
+
+Stopwords are high-frequency functional words (e.g., the, is, and, of) that carry limited semantic meaning in isolation. While essential for grammatical structure, they contribute little to topic discrimination or thematic analysis. In large corpora, stopwords can dominate frequency statistics and obscure meaningful lexical patterns.
+
+To reduce noise and improve signal quality, we remove stopwords using spaCy’s built-in English stopword list. This ensures consistency with the tokenization step while maintaining computational efficiency. Stopword removal reduces vocabulary size, improves interpretability of term-frequency distributions, and enhances downstream tasks such as topic modeling and trend analysis.
+
+```{python}
+#| label: stopword
+
+
+media = pd.read_parquet("data/processed/media_tls.parquet")
+media_has_chunk = pd.read_parquet("data/processed/media_has_chunk_tls.parquet")
+
+
+nlp = spacy.blank("en")
+stop_words = nlp.Defaults.stop_words
+
+# Remove stopwords
+media["tokens_no_stop"] = media["tokens"].apply(
+    lambda tokens: [t for t in tokens if t not in stop_words]
+)
+
+media_has_chunk["tokens_no_stop"] = media_has_chunk["tokens"].apply(
+    lambda tokens: [t for t in tokens if t not in stop_words]
+)
+
+# Save intermediate
+media.to_parquet("data/processed/media_tls.parquet", index=False)
+media_has_chunk.to_parquet("data/processed/media_has_chunk_tls.parquet", index=False)
+
+print("Example stop_words", media["tokens_no_stop"].iloc[0][:20])
+```
+
+
+
+
+### Lemmatization
+
+Lemmatization reduces inflected or derived word forms to their base or dictionary form (lemma). For example:
+
+- models, modeling, modeled → model
+- improves, improving → improve
+
+Unlike stemming, which applies heuristic truncation rules, lemmatization preserves linguistically valid root forms. This improves interpretability and ensures that semantically identical words are treated as a single feature during analysis.
+
+We apply the WordNet lemmatizer from NLTK to the stopword-filtered tokens. This lightweight approach balances computational efficiency with linguistic normalization, allowing consistent vocabulary consolidation across the corpus.
+
+
+```{python}
+#| label: lemmatization
+#| eval: true
+
+import nltk
+nltk.download("wordnet")
+nltk.download("omw-1.4")
+from nltk.stem import WordNetLemmatizer
+
+# Load existing file
+media = pd.read_parquet("data/processed/media_tls.parquet")
+media_has_chunk = pd.read_parquet("data/processed/media_has_chunk_tls.parquet")
+
+
+
+# Lemmatization
+lemmatizer = WordNetLemmatizer()
+
+
+media["lemmas"] = media["tokens_no_stop"].apply(
+    lambda tokens: [lemmatizer.lemmatize(t) for t in tokens]
+)
+
+
+media_has_chunk["lemmas"] = media_has_chunk["tokens_no_stop"].apply(
+    lambda tokens: [lemmatizer.lemmatize(t) for t in tokens]
+)
+
+
+media.to_parquet("data/processed/media_tls.parquet", index=False)
+media_has_chunk.to_parquet("data/processed/media_has_chunk_tls.parquet", index=False)
+
+print("Example lemmatization", media["lemmas"].iloc[0][:20])
 
 ```
 
