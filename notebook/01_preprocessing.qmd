@@ -644,6 +644,242 @@ for abbr in candidates:
 We deliberately skip further acronym and abbreviation handling. Our check shows that the tags use specific, intentional abbreviations (e.g. `GPT`, `BERT`, `RAG`) that refer to distinct models and technologies - no inconsistencies. And: RAG and transformer-based embeddings handle abbreviations in free text implicitly, making normalization unnecessary for our downstream tasks.
 
 
+
+### Detection of Encoding Artefacts (Mojibake)
+
+During manual inspection of chunk-level text, we observed patterns such as:
+
+- â\x80\x9c
+- â\x80\x9d
+- Â
+- â\x80\x93
+
+These patterns are typical symptoms of UTF-8 text incorrectly decoded as Latin-1 (mojibake).
+Such artefacts inflate the vocabulary and introduce meaningless tokens, negatively affecting:
+
+- tokenization
+- n-gram statistics
+- embeddings
+- language modeling
+
+We therefore explicitly search for common mojibake markers before applying corrections.
+
+**Detection Strategy**
+
+Following the regex-based normalization approach demonstrated in the course notebooks, we define patterns that detect:
+
+- Common mojibake byte sequences (â, Â, \x80)
+- Non-ASCII control-byte remnants
+- Suspicious high-byte characters that typically do not appear in clean English news text
+
+::: {.scroll-box}
+
+```{python}
+
+#| label: detect-mojibake
+#| echo: true
+#| warning: false
+#| #| output: true
+#| output-scroll: true
+
+
+# Common mojibake indicators
+PAT_MOJIBAKE = re.compile(r'â|Â|\x80|\x99|\x9c|\x9d')
+
+def scan_mojibake(df, col, label, n_examples=6):
+    s = df[col].fillna("")
+    
+    mask = s.str.contains(PAT_MOJIBAKE, regex=True)
+    rows_with_mojibake = int(mask.sum())
+    
+    print(f"\n=== {label} | {col} ===")
+    print(f"Rows containing mojibake markers: {rows_with_mojibake:,}")
+    
+    if rows_with_mojibake > 0:
+        print("\nExamples:")
+        for idx, txt in s[mask].head(n_examples).items():
+            print(f"- idx={idx} ...{txt[:180]}...")
+
+# Run detection
+scan_mojibake(media, "full_content", "MEDIA")
+scan_mojibake(media_has_chunk, "chunked_content", "CHUNKS")
+
+
+# Count total mojibake hits
+total_hits_media = int(media["full_content"].fillna("").str.count(PAT_MOJIBAKE).sum())
+total_hits_chunks = int(media_has_chunk["chunked_content"].fillna("").str.count(PAT_MOJIBAKE).sum())
+
+print("Total mojibake marker occurrences:")
+print(f"- MEDIA:  {total_hits_media:,}")
+print(f"- CHUNKS: {total_hits_chunks:,}")
+```
+
+:::
+
+The presence of mojibake confirms character encoding inconsistencies in the original dataset. Because these artefacts create artificial tokens and distort lexical statistics, deterministic repair is necessary prior to any downstream NLP task.
+
+```{python}
+#| label: fix-mojibake
+#| echo: true
+#| warning: false
+
+def fix_mojibake(text: str) -> str:
+    """
+    Repair UTF-8 text that was incorrectly decoded as latin-1.
+    Example:
+        â\x80\x9c  ->  “
+    """
+    if not isinstance(text, str):
+        return text
+
+    # Attempt generic latin1 -> utf8 repair
+    try:
+        repaired = text.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
+
+        # Only keep if it actually improves the text
+        if ("â" in text or "Â" in text) and ("â" not in repaired and "Â" not in repaired):
+            text = repaired
+    except Exception:
+        pass
+
+    # Targeted replacements for common remnants
+    replacements = {
+        r'â\x80\x99': '’',
+        r'â\x80\x9c': '“',
+        r'â\x80\x9d': '”',
+        r'â\x80\x98': '‘',
+        r'â\x80\x93': '–',
+        r'â\x80\x94': '—',
+        r'â\x80\xa6': '…',
+        r'Â': '',
+    }
+
+    for bad, good in replacements.items():
+        text = text.replace(bad, good)
+
+    return text
+
+
+
+media["full_content"] = media["full_content"].apply(fix_mojibake)
+media_has_chunk["chunked_content"] = media_has_chunk["chunked_content"].apply(fix_mojibake)
+```
+
+```{python}
+#| label: verify-mojibake-fix
+#| echo: true
+#| warning: false
+
+PAT_MOJIBAKE = r'â|Â|\x80|\x99|\x9c|\x9d'
+
+print("Rows still containing mojibake markers:")
+print("MEDIA:", media["full_content"].fillna("").str.contains(PAT_MOJIBAKE, regex=True).sum())
+print("CHUNKS:", media_has_chunk["chunked_content"].fillna("").str.contains(PAT_MOJIBAKE, regex=True).sum())
+```
+
+
+### Sentence-Boundary Spacing
+
+We also observed a systematic text-quality issue that persists after HTML stripping and boilerplate removal:
+
+Broken sentence spacing, where a sentence-ending punctuation mark is immediately followed by an uppercase letter (e.g., Digit.The agreement..., authenticity.Unfortunately...).
+
+
+
+```{python}
+#| label: detect-sentence-boundary-spacing
+#| echo: true
+#| warning: false
+
+
+
+# Detect missing space after punctuation
+# Protect abbreviations like U.S., S.C., E.U., etc.
+PAT_PUNCT_NO_SPACE = re.compile(r'([!?])([A-Z])|\.([A-Z])(?!\.)')
+
+def scan_text_issues(df: pd.DataFrame, col: str, label: str, n_examples: int = 6):
+    s = df[col].fillna("")
+
+    m_punct = s.str.contains(PAT_PUNCT_NO_SPACE, regex=True)
+    punct_rows = int(m_punct.sum())
+    punct_hits = int(s.str.count(PAT_PUNCT_NO_SPACE).sum())
+
+    print(f"\n=== {label} | {col} ===")
+    print(f"Rows with sentence-boundary spacing issues: {punct_rows:,}")
+    print(f"Total occurrences: {punct_hits:,}")
+
+    if punct_rows > 0:
+        print("\nExamples:")
+        for idx, txt in s[m_punct].head(n_examples).items():
+            m = PAT_PUNCT_NO_SPACE.search(txt)
+            start = max(m.start() - 45, 0)
+            end = min(m.end() + 45, len(txt))
+            print(f"- idx={idx} ...{txt[start:end]}...")
+
+scan_text_issues(media, "full_content", "MEDIA")
+scan_text_issues(media_has_chunk, "chunked_content", "CHUNKS")
+
+```
+
+**Normalization**
+
+We correct the issue by inserting a space after sentence-ending punctuation when the next character begins a new sentence.
+
+Abbreviations such as U.S., S.C., and E.U. are preserved.
+
+
+
+```{python}
+#| label: fix-sentence-boundary-spacing
+#| echo: true
+#| warning: false
+
+import re
+
+def fix_punct_spacing(text: str) -> str:
+    """
+    Insert missing spaces after sentence punctuation.
+    Protect abbreviations such as U.S., E.U., S.C.
+    """
+    if not isinstance(text, str):
+        return text
+
+    # ! and ? are safe
+    text = re.sub(r'([!?])([A-Z])', r'\1 \2', text)
+
+    # For '.', add space only if the capital letter is NOT followed by another '.'
+    text = re.sub(r'\.([A-Z])(?!\.)', r'. \1', text)
+
+    # Normalize whitespace
+    text = " ".join(text.split())
+
+    return text
+
+
+# Apply correction
+media["full_content"] = media["full_content"].apply(fix_punct_spacing)
+media_has_chunk["chunked_content"] = media_has_chunk["chunked_content"].apply(fix_punct_spacing)
+```
+
+```{python}
+#| label: verify-sentence-boundary-spacing
+#| echo: true
+#| warning: false
+
+punct_hits_media = int(
+    media["full_content"].fillna("").str.count(PAT_PUNCT_NO_SPACE).sum()
+)
+
+punct_hits_chunks = int(
+    media_has_chunk["chunked_content"].fillna("").str.count(PAT_PUNCT_NO_SPACE).sum()
+)
+
+print("After normalization:")
+print(f"- MEDIA remaining spacing issues: {punct_hits_media:,}")
+print(f"- CHUNKS remaining spacing issues: {punct_hits_chunks:,}")
+
+```
+
 ## Exploratory Analysis
 
 ::: callout-warning

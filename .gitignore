@@ -2,9 +2,13 @@
 
 /.quarto/
 
+<<<<<<< Updated upstream
 # Python bytecode and cache
 __pycache__/
 _cache/
+=======
+sandbox/
+>>>>>>> Stashed changes
 
 # Quarto rendered outputs
 notebook/*.html
@@ -18,3 +22,5 @@ notebook/*_files/
 *.ipynb
 
 /_freeze/
+
+**/*.quarto_ipynb
