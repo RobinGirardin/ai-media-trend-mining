@@ -728,11 +728,8 @@ plt.show()
 
 ```{python}
 #| eval: false
-before = time.time()
 articles = media_has_chunk.chunked_content.values.tolist()
 pred: List[dict] = sentiment_task(media_has_chunk.chunked_content.values.tolist())
-after = time.time()
-print(f"Runtime: {after - before / 3600} (hours)")
 
 result: list[str] = [{"text": text, "label": y["label"], "score": y["score"]} for text, y in zip(articles, pred)]
 sentiments = [res["label"] for res in result]
@@ -743,6 +740,103 @@ if "sentiment" in media_has_chunk.columns:
 
 with open("notebook/sentiment_analysis_results.json", "w") as fb:
 	json.dump(result, fb)
+```
+
+Now that we have all the chunks analyzse, we'll aggregate the results to each media.
+For this, 'negative' sentiment will have the value '-1', 'neutral' sentiment will be '0' and '1' sentiment will be '1'.
+
+```{python}
+def convert_to_numerical(sentiment: str) -> int:
+	match sentiment:
+		case "positive":
+			return 1
+		case "neutral":
+			return 0
+		case "negative":
+			return -1
+	
+media_has_chunk["num_sentiment"] = media_has_chunk["sentiment"].apply(convert_to_numerical)
+sentiment_per_media = media_has_chunk.groupby("media_id").num_sentiment.mean().reset_index()
+
+media = media.merge(sentiment_per_media, on="media_id", how="left").rename(columns={"num_sentiment": "sentiment"})
+```
+
+Good, now we have a good setup to finally do some analyzis.
+
+```{python}
+media_with_tag = media.merge(media_has_tags, on="media_id", how="left")
+```
+Broadly, we could look at the average sentiment per tag.
+Morevoer, since tags represent also represent companies or products, this is helpful in identiying public sentiment about particular technologies.
+Now, some tag have very poor representation throughout the media and thus would represent a biased view of the population.
+
+Thus, we will look at the average sentiment per tags weighted by each tag's sentiment score standard error.
+By using the standard error as an estimation of the true population mean, we filter out insights not reflecting the population.
+The use of the standard error relies on the assumption that the sentiment score is normally distributed.
+
+Naturally, this cannot be 100% the case, since our values do not go past -1 and 1.
+Moreover, even then, the distribution is negatively skewed, display a higher tendencies of sentiment score to be positive.
+This fact alone seem to reflect that the overall AI/Robotics market is faring well, or at least on the surface.
+Indeed, performance promises and investements are seen positively by the model.
+
+```{python}
+media_with_tag.sentiment.plot(kind="kde")
+
+plt.tight_layout()
+plt.title("Sentiment Score Distribution")
+plt.show()
+```
+
+The following plot display the weighted sentiment score and also illustrate the impact of sample size on the results.
+
+First, we can observe that there is no overwhelmingly positively precieved tag, with the very high and very low values most likely being the case because of a small samples size.
+Secondly, we can see that products or framework such as 'Appier' or 'BabyAGI' are the most well-percieved.
+That alone is a nice indicator that those technologies have a nice future, or at least doing well, avoiding major drawbacks between September 2024 to September 2025.
+Constratingly, TeslaAutopilot or BIGBench showing more mitigated results, being overall negatively percieved by the public.
+Note however the relatively high standard errors of all values, indicating potential strong deviation of this estimated mean with the true population mean, thus the true sentiment score for each tag.
+
+However, it is important that, since the distribution isn't normally distributed, the standard error is not a **unbiased** estimator.
+
+```{python}
+# Compute the less biased metric 
+sentiment_per_tag = media_with_tag.groupby("tag").sentiment.agg(sent_mean="mean", sent_sde="sem")
+sentiment_per_tag["weigh_sent"] = sentiment_per_tag.sent_mean * sentiment_per_tag.sent_sde
+
+# Get the best and worse tags
+top_5_tag = sentiment_per_tag.sort_values(by="weigh_sent", ascending=False).iloc[:5]
+worse_5_tag = sentiment_per_tag.sort_values(by="weigh_sent", ascending=True).iloc[:5]
+
+# Plot
+pd.concat([top_5_tag, worse_5_tag], axis=0).plot(kind="bar")
+plt.title("Weighted Sentiment for Top/Bottom 5 Tags")
+plt.tight_layout()
+plt.show()
+```
+
+Interestingly, we could a similar analysis for the media themselves.
+Is there any media posting more positive news that negative news?
+This could potentially be a sign of a biased media or poor journalism quality.
+Indeed, a media should strive to be neutral, while avoiding to be biased to towards extremes,
+thus publishing news for the relevance, whether they have a positive or negative connotation.
+
+
+Looking at the following plot, we can see that no media is tied to one extreme or another. Again, here I'm basing this conclusion to the weighted sentiment score.
+Seeing that this plot only highlight the top and worse weighted sentiment score, and that most of them are close to zero, we could consider the questions rejected to some extend.
+
+```{python}
+# Compute the less biased metric 
+sentiment_per_tag = media_with_tag.groupby("domain").sentiment.agg(sent_mean="mean", sent_sde="sem")
+sentiment_per_tag["weigh_sent"] = sentiment_per_tag.sent_mean * sentiment_per_tag.sent_sde
+
+# Get the best and worse tags
+top_5_tag = sentiment_per_tag.sort_values(by="weigh_sent", ascending=False).iloc[:5]
+worse_5_tag = sentiment_per_tag.sort_values(by="weigh_sent", ascending=True).iloc[:5]
+
+# Plot
+pd.concat([top_5_tag, worse_5_tag], axis=0).plot(kind="bar")
+plt.title("Weighted Sentiment for Top/Bottom 5 Media")
+plt.tight_layout()
+plt.show()
 ```
 
 ## Entities and Relationship Extraction
