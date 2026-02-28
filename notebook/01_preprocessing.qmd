@@ -36,11 +36,14 @@ However, cleaning and exploration is necessary before any analysis. As such, thi
 import sys
 import pandas as pd
 import os
-
+from typing import List
 from src.lib import parse_string_into_list
-
+import time
 from bs4 import BeautifulSoup
 import html
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 import re
 from collections import Counter
@@ -640,6 +643,107 @@ In our case, the goal is somewhat similar: we want to extract sentiment out of n
 The goal is to gather an general understanding of how is the AI media discourse percieved, thus potentially extrapolating on the market reliability or stability.
 Naturally, sentiment is inherently subjective. Furthermore, the result effectively depends on a model and unsupervised data.
 As such, **isolated** are to be taken lightly.
+
+Considering that we're currently handling unsupervised and highlighly contextual data, lexicon-based approach or machine learning model would probably prove lacking.
+Moreover, language model have to perform very well on a variety of task (@kumar2023comprehensivereviewsentimentanalysis), allow for powerful transfer learning.
+This is the technique that we're currently using.
+As fine-tuning a sentiment analysis language model isn't this section purpose, and would take much time considering the lack of labels,
+we leverage a fine-tuned RoBERTa model on twitter short texts, achieving very good performance and nuance comprehension (`cardiffnlp/twitter-roberta-base-sentiment-latest`).
+
+Moreover, given that the average sentence length is fairly big, and thus unmanageable for most portable models, we'll conduct the sentiment on chunks instead of whole documents.
+Later, we could just aggregated the lables on a article level.
+Morevoero  this approach would allow us to have a more granular understanding of each article.
+
+:::{.callout-warning}
+Insert here a average token length per discussion if not already.
+:::
+
+```{python}
+model_path = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+sentiment_task = pipeline("sentiment-analysis", model=model_path, tokenizer=model_path)
+```
+
+Taking a few examples to roughly test the model performance, we can see his successfuly labelling, as well as efficient inference time.
+
+```{python}
+#| echo: false
+articles_samples = media_has_chunk["chunked_content"].sample(n=20, random_state=25)
+
+results = sentiment_task(articles_samples.values.tolist())
+for text, res in zip(articles_samples, results):
+	print(f"**{res['label']} ({np.round(res['score'], 2)})**")
+	print(text, end="\n\n")
+```
+
+Performing the analysis on the entirety of the dataset would take a considerable amount of time.
+However, the runtime increase is proportional to the vectors of processed text length, and enable a fairly accurate estimation of the total runtime: ~7 hours.
+
+```{python}
+#| echo: false
+sample_size = np.arange(10, 1000, 200)
+runtime = []
+for size in sample_size:
+	print(size)
+	articles_samples = media_has_chunk["chunked_content"].sample(n=size)
+
+	before = time.time()
+	results = sentiment_task(articles_samples.values.tolist())
+	after = time.time()
+	runtime.append(after - before)
+```
+
+```{python}
+slope, intercept = np.polyfit(sample_size, runtime, 1)
+
+extend_to = media_has_chunk.shape[0] 
+extended_samples = np.linspace(sample_size.min(), extend_to, 300)
+extended_runtime = slope * extended_samples + intercept
+
+sns.set_theme(style="whitegrid", context="talk")
+
+plt.figure(figsize=(10, 6))
+
+plt.scatter(sample_size, runtime, 
+            color="#2E86C1", 
+            s=80, 
+            label="Measured Runtime",
+            zorder=3)
+
+plt.plot(extended_samples, extended_runtime, 
+         color="#E74C3C", 
+         linewidth=3,
+         label="Linear Projection")
+
+plt.axvspan(sample_size.max(), extend_to, 
+            color="gray", alpha=0.1, label="Extrapolated Region")
+
+plt.xlabel("Sample Size")
+plt.ylabel("Runtime (seconds)")
+plt.title("Runtime Scaling with Sample Size")
+plt.legend()
+plt.tight_layout()
+
+plt.show()
+```
+
+```{python}
+#| eval: false
+before = time.time()
+articles = media_has_chunk.chunked_content.values.tolist()
+pred: List[dict] = sentiment_task(media_has_chunk.chunked_content.values.tolist())
+after = time.time()
+print(f"Runtime: {after - before / 3600} (hours)")
+
+result: list[str] = [{"text": text, "label": y["label"], "score": y["score"]} for text, y in zip(articles, pred)]
+sentiments = [res["label"] for res in result]
+media_has_chunk["sentiment"] = sentiments
+
+if "sentiment" in media_has_chunk.columns:
+	media_has_chunk.to_csv("data/processed/media_has_chunk.csv")
+
+with open("notebook/sentiment_analysis_results.json", "w") as fb:
+	json.dump(result, fb)
+```
 
 ## Entities and Relationship Extraction
 
