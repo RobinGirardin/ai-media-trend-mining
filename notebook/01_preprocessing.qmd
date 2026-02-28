@@ -292,10 +292,11 @@ print(f"Articles without tags: {len(articles_without_tags)}")
 ```{python}
 #| echo: true
 #| warning: false
+#| cache: true
 
 # Remove empty chunks
 media_has_chunk = media_has_chunk.dropna(subset=["chunked_content"])
-media_has_chunk = media_has_chunk[media_has_chunk["chunked_content"].str.strip() != ""]
+media_has_chunk = media_has_chunk[media_has_chunk["chunked_content"].str.len() > 0]
 
 print(f"Chunks after removing empty entries: {len(media_has_chunk)}")
 ```
@@ -538,6 +539,7 @@ print(f"Chunks after removing short entries: {len(media_has_chunk)}")
 ```{python}
 #| echo: true
 #| warning: false
+#| cache: true
 def detect_language(text):
     try:
         return detect(str(text))
@@ -615,7 +617,31 @@ print("Whitespace removed.")
 
 One tag with leading/trailing whitespace was stripped. No other normalization issues were detected. The tag data is now clean and ready for analysis.
 
+```{python}
+#| echo: true
+#| warning: false
 
+# Check for potential abbreviation/acronym duplicates in tags
+# Look for short tags (likely abbreviations)
+short_tags = media_has_tags[media_has_tags["tag"].str.len() <= 5]["tag"].unique()
+print("Short tags (potential abbreviations):")
+print(sorted(short_tags))
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check if abbreviations and their expanded forms coexist as tags
+# Focus on the most obvious candidates
+candidates = ["GPT", "GPU", "RAG", "BERT", "NLP", "OCR", "TPU", "RLHF"]
+for abbr in candidates:
+    matches = media_has_tags[media_has_tags["tag"].str.contains(abbr, case=False)]["tag"].unique()
+    if len(matches) > 1:
+        print(f"{abbr}: {matches}")
+```
+
+We deliberately skip acronym and abbreviation handling. The tags use specific, intentional abbreviations (e.g. `GPT`, `BERT`, `RAG`) that refer to distinct models and technologies — not inconsistencies. RAG and transformer-based embeddings handle abbreviations in free text implicitly, making normalization unnecessary for our downstream tasks.
 
 
 ## Exploratory Analysis

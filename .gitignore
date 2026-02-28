@@ -2,6 +2,10 @@
 
 /.quarto/
 
+# Python bytecode and cache
+__pycache__/
+_cache/
+
 # Quarto rendered outputs
 notebook/*.html
 notebook/*_files/
