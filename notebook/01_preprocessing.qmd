@@ -652,9 +652,109 @@ This section needs to be implemented
 
 ## Temporal Analysis
 
-::: callout-warning
-This section needs to be implemented
-:::
+**Articles per Month**
+
+The following chart shows the number of articles published per month across the dataset period (September 2024 – August 2025).
+
+```{python}
+#| echo: true
+#| warning: false
+#| cache: true
+
+import matplotlib.pyplot as plt
+
+# Prepare monthly article counts
+media["month"] = media["date"].dt.to_period("M")
+monthly_counts = media.groupby("month").size().reset_index(name="count")
+monthly_counts["month_str"] = monthly_counts["month"].astype(str)
+
+# Plot
+fig, ax = plt.subplots(figsize=(12, 5))
+ax.bar(monthly_counts["month_str"], monthly_counts["count"], color="steelblue")
+ax.set_title("Number of Articles per Month", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Number of Articles")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+The dataset covers September 2024 to August 2025, with a relatively consistent article volume of 1,100–1,700 per month. The lower counts in September 2024 and August 2025 are expected, as these months are only partially covered by the dataset.
+
+January 2025 stands out as the peak month with ~2,000 articles, which aligns with two major AI events happening in quick succession: the release of DeepSeek-R1 (January 20), a Chinese open-source model that matched OpenAI's o1 at a fraction of the cost, causing Nvidia's stock to drop nearly 17%; and the announcement of the Stargate Project (January 21), a $500 billion AI infrastructure initiative by OpenAI, SoftBank, and Oracle. These back-to-back events generated exceptional media coverage across the AI landscape.
+
+**Top 15 Tags over Time**
+
+The following heatmap illustrates how the 15 most frequent tags are distributed across months, revealing event-driven peaks and persistent background themes.
+
+```{python}
+#| echo: true
+#| warning: false
+#| cache: true
+
+# Get top 15 most frequent tags
+top_tags = media_has_tags["tag"].value_counts().head(15).index.tolist()
+
+# Merge media with tags and filter top tags
+media_tags = media.merge(media_has_tags, on="media_id", how="left")
+media_tags = media_tags[media_tags["tag"].isin(top_tags)]
+
+# Count tag occurrences per month
+media_tags["month"] = media_tags["date"].dt.to_period("M")
+heatmap_data = media_tags.groupby(["month", "tag"]).size().unstack(fill_value=0)
+heatmap_data.index = heatmap_data.index.astype(str)
+
+# Plot
+fig, ax = plt.subplots(figsize=(16, 8))
+sns.heatmap(heatmap_data.T, cmap="YlOrRd", linewidths=0.5, ax=ax)
+ax.set_title("Top 15 Tags over Time", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Tag")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+The heatmap reveals several interesting trends across the dataset period. `GenerativeAI` is consistently the dominant tag throughout all months, reflecting its central role in AI media discourse. `LargeLanguageModel` shows a sharp peak in January 2025, directly aligning with the release of DeepSeek-R1 and the announcement of the Stargate Project, which generated exceptional media coverage.
+
+The `Video` tag also peaks in January 2025, likely driven by continued coverage of OpenAI's Sora, which had launched in December 2024 as the first widely-accessible AI video generation model. Tags such as `Finetuning`, `Audio`, and `Accountability` remain relatively stable over time, suggesting these are persistent background themes 
+in AI discourse rather than event-driven topics.
+
+**Top 5 Tags over Time**
+
+The following line chart tracks the monthly evolution of the 5 most frequent tags, allowing for a more precise comparison of their relative prominence over time.
+
+```{python}
+#| echo: true
+#| warning: false
+#| cache: true
+
+# Get top 5 most frequent tags overall
+top_5_tags = media_has_tags["tag"].value_counts().head(5).index.tolist()
+
+# Filter and count per month
+media_tags_top5 = media_tags[media_tags["tag"].isin(top_5_tags)]
+line_data = media_tags_top5.groupby(["month", "tag"]).size().unstack(fill_value=0)
+line_data.index = line_data.index.astype(str)
+
+# Plot
+fig, ax = plt.subplots(figsize=(14, 6))
+for tag in top_5_tags:
+    ax.plot(line_data.index, line_data[tag], marker="o", label=tag)
+
+ax.set_title("Top 5 Tags over Time", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Number of Articles")
+ax.legend(title="Tag", bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+`GenerativeAI` consistently leads all other tags throughout the entire period, with a pronounced peak in January 2025 mirroring the overall article volume spike. `LargeLanguageModel` follows a similar pattern but with a sharper January peak, confirming the outsized impact of DeepSeek-R1 and Stargate on LLM-related coverage.
+
+`Video`, `Personalisation` and `Planning` move largely in parallel, suggesting these topics are driven more by general AI media volume than by specific events.
+
 
 ## Sentiment Analysis
 
