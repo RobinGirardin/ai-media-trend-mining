@@ -36,6 +36,7 @@ However, cleaning and exploration is necessary before any analysis. As such, thi
 import sys
 import pandas as pd
 import os
+import torch
 from scipy.stats import sem
 from typing import List
 from src.lib import parse_string_into_list
@@ -45,7 +46,7 @@ import html
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+import json
 import re
 from collections import Counter
 
@@ -735,7 +736,7 @@ plt.show()
 ```{python}
 #| eval: false
 articles = media_has_chunk.chunked_content.values.tolist()
-pred: List[dict] = sentiment_task(media_has_chunk.chunked_content.values.tolist())
+pred: List[dict] = sentiment_task(media_has_chunk.chunked_content.values.tolist(), truncation=True, max_length=512)
 
 result: list[str] = [{"text": text, "label": y["label"], "score": y["score"]} for text, y in zip(articles, pred)]
 sentiments = [res["label"] for res in result]
@@ -779,7 +780,7 @@ Broadly, we could look at the average sentiment per tag.
 Morevoer, since tags represent also represent companies or products, this is helpful in identiying public sentiment about particular technologies.
 Now, some tag have very poor representation throughout the media and thus would represent a biased view of the population.
 
-Thus, we will look at the average sentiment per tags weighted by each tag's sentiment score standard error.
+Thus, we will only look at the average sentiment per tags for value having a standard errors below the 0.05 percentile.
 By using the standard error as an estimation of the true population mean, we filter out insights not reflecting the population.
 The use of the standard error relies on the assumption that the sentiment score is normally distributed.
 
@@ -798,11 +799,15 @@ plt.show()
 
 The following plot display the weighted sentiment score and also illustrate the impact of sample size on the results.
 
-First, we can observe that there is no overwhelmingly positively precieved tag, with the very high and very low values most likely being the case because of a small samples size.
-Secondly, we can see that products or framework such as 'Appier' or 'BabyAGI' are the most well-percieved.
-That alone is a nice indicator that those technologies have a nice future, or at least doing well, avoiding major drawbacks between September 2024 to September 2025.
-Constratingly, TeslaAutopilot or BIGBench showing more mitigated results, being overall negatively percieved by the public.
-Note however the relatively high standard errors of all values, indicating potential strong deviation of this estimated mean with the true population mean, thus the true sentiment score for each tag.
+First, we observe that technologies such as 'WordNet' or 'Simplilearn' seem very well percieved by the public through the September 2024 to September 2025 period.
+Alternatively, 'EleutherAI' or 'ClearviewAI' display the opposite patterns, with a significantly low sentiment score, indicating that they haven't been faring so well.
+
+Secondly, we observe, with no real suprise that concepts such as 'HighPerformanceComputing' recieves a lot of positive attention lately. This is reflected by the general hyper-scaling trend as well as the massive investement in companies such as Nvidia or Intel.
+Alternatively, concepts such as 'Personnalisation' are also very well recieved. Seeing this concepts ranking among the best seen tags is a sign the market of using AI technologies for consumer benefits and automatization is booming.
+Further interpreting this, we could sign this as a positive sign for the open-source community of the AI technologies. Indeed, they efforts in making those technologies available to everyone and help the daily lifes of regular customers is paying.
+
+On the contrary, concepts such as 'MilitaryAndDefense' and 'Fairness' have mitigated score. Indicating that those concepts are real public concerns with the recent advancement of AI technologies, and that improvement are still to be made.
+However, no real concepts seems to be majorily negatively seen, as least when focusing on the tags we're the most certain about our estimates. 
 
 However, it is important that, since the distribution isn't normally distributed, the standard error is not a **unbiased** estimator.
 
@@ -816,11 +821,13 @@ sentiment_per_tag = (
         sent_sde=("sentiment", "sem")
     )
 )
-sentiment_per_tag["weigh_sent"] = sentiment_per_tag.sent_mean * sentiment_per_tag.sent_sde
+sentiment_per_tag = sentiment_per_tag.dropna()
+alpha = sentiment_per_tag.sent_sde.quantile(0.05)
+sentiment_per_tag = sentiment_per_tag.loc[sentiment_per_tag.sent_sde <= alpha]
 
 # Get the best and worse tags
-top_5_tag = sentiment_per_tag.sort_values(by="weigh_sent", ascending=False).iloc[:5]
-worse_5_tag = sentiment_per_tag.sort_values(by="weigh_sent", ascending=True).iloc[:5]
+top_5_tag = sentiment_per_tag.sort_values(by="sent_mean", ascending=False).iloc[:5]
+worse_5_tag = sentiment_per_tag.sort_values(by="sent_mean", ascending=True).iloc[:5]
 
 # Plot
 pd.concat([top_5_tag, worse_5_tag], axis=0).plot(kind="bar")
@@ -836,8 +843,13 @@ Indeed, a media should strive to be neutral, while avoiding to be biased to towa
 thus publishing news for the relevance, whether they have a positive or negative connotation.
 
 
-Looking at the following plot, we can see that no media is tied to one extreme or another. Again, here I'm basing this conclusion to the weighted sentiment score.
-Seeing that this plot only highlight the top and worse weighted sentiment score, and that most of them are close to zero, we could consider the questions rejected to some extend.
+Looking at the following plot, again filtered by a standard errors below the 5th percentile, we can see that some media, such as 'aifund' or 'smmt.co' are linked with a particularly positive sentiment.
+Taking into account the current hype for those technologies, a mean score of 0.6 and over 0.8 is high, indicating a high chance that their news don't cover the full spectrum of events.
+
+Alternatively, we can also observe that there is no media biased towards negative news, which is a good thing, as spreading fear unnecessarily isn't good.
+
+However, some media such as "vogue", or very popular media such as 'morningstart' have a much more neutral coverage, indicating their overall neutral position and balanced news coverage.
+This is a sign for trust in those media.
 
 ```{python}
 # Compute the less biased metric 
@@ -849,11 +861,11 @@ sentiment_per_domain = (
         sent_sde=("sentiment", "sem")
     )
 )
-sentiment_per_domain["weigh_sent"] = sentiment_per_tag.sent_mean * sentiment_per_domain.sent_sde
-
+alpha = sentiment_per_domain.sent_sde.quantile(0.05)
+sentiment_per_domain = sentiment_per_domain.loc[sentiment_per_domain.sent_sde <= alpha]
 # Get the best and worse domains
-top_5_domain = sentiment_per_domain.sort_values(by="weigh_sent", ascending=False).iloc[:5]
-worse_5_domain = sentiment_per_domain.sort_values(by="weigh_sent", ascending=True).iloc[:5]
+top_5_domain = sentiment_per_domain.sort_values(by="sent_mean", ascending=False).iloc[:5]
+worse_5_domain = sentiment_per_domain.sort_values(by="sent_mean", ascending=True).iloc[:5]
 
 # Plot
 pd.concat([top_5_domain, worse_5_domain], axis=0).plot(kind="bar")
