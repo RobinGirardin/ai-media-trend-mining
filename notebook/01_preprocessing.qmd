@@ -1262,7 +1262,7 @@ result = lx.extract(
 ```
 
 ```{python}
-#| eval: false
+#| eval: true
 lx.io.save_annotated_documents([result], output_name="extraction_results.jsonl", output_dir=".")
 html_content = lx.visualize("notebook/extraction_results.jsonl")
 with open("notebook/visualization.html", "w") as f:
