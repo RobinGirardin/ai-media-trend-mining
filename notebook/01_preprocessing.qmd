@@ -36,15 +36,21 @@ However, cleaning and exploration is necessary before any analysis. As such, thi
 import sys
 import pandas as pd
 import os
-
+import torch
+from scipy.stats import sem
+from typing import List
 from src.lib import parse_string_into_list
-
+import time
 from bs4 import BeautifulSoup
 import html
-
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import json
 import re
 from collections import Counter
 
+from transformers import pipeline
 from langdetect import detect, LangDetectException
 ```
 
@@ -896,9 +902,260 @@ This section needs to be implemented
 
 ## Sentiment Analysis
 
-::: callout-warning
-This section needs to be implemented
+Sentiment analysis  is a crucial analysis whose goal is to extract sentiment out of a text.
+It is often news in product reviews to estimate customer satisfaction or for social analysis on different media.
+The sentiment is often expressed, either in a continuous score between -1 (negative) and 1 (positive), or in discrete value: -1, 0 (neutral), 1.
+
+In our case, the goal is somewhat similar: we want to extract sentiment out of news articles.
+The goal is to gather an general understanding of how is the AI media discourse percieved, thus potentially extrapolating on the market reliability or stability.
+Naturally, sentiment is inherently subjective. Furthermore, the result effectively depends on a model and unsupervised data.
+As such, **isolated** are to be taken lightly.
+
+Considering that we're currently handling unsupervised and highlighly contextual data, lexicon-based approach or machine learning model would probably prove lacking.
+Moreover, language model have to perform very well on a variety of task (@kumar2023comprehensivereviewsentimentanalysis), allow for powerful transfer learning.
+This is the technique that we're currently using.
+As fine-tuning a sentiment analysis language model isn't this section purpose, and would take much time considering the lack of labels,
+we leverage a fine-tuned RoBERTa model on twitter short texts, achieving very good performance and nuance comprehension (`cardiffnlp/twitter-roberta-base-sentiment-latest`).
+
+Moreover, given that the average sentence length is fairly big, and thus unmanageable for most portable models, we'll conduct the sentiment on chunks instead of whole documents.
+Later, we could just aggregated the lables on a article level.
+Morevoero  this approach would allow us to have a more granular understanding of each article.
+
+:::{.callout-warning}
+Insert here a average token length per discussion if not already.
 :::
+
+```{python}
+#| label: "load_model"
+#| message: false
+#| warning: false
+model_path = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+sentiment_task = pipeline("sentiment-analysis", model=model_path, tokenizer=model_path)
+```
+
+Taking a few examples to roughly test the model performance, we can see his successfuly labelling, as well as efficient inference time.
+
+```{python}
+#| echo: false
+#| label: "sent-perf-overview"
+articles_samples = media_has_chunk["chunked_content"].sample(n=20, random_state=25)
+
+results = sentiment_task(articles_samples.values.tolist())
+for text, res in zip(articles_samples, results):
+	print(f"**{res['label']} ({np.round(res['score'], 2)})**")
+	print(text, end="\n\n")
+```
+
+Performing the analysis on the entirety of the dataset would take a considerable amount of time.
+However, the runtime increase is proportional to the vectors of processed text length, and enable a fairly accurate estimation of the total runtime: ~7 hours.
+
+```{python}
+#| echo: false
+#| eval: false
+#| label: "sent-pipeline-runtime"
+sample_size = np.arange(10, 1000, 200)
+runtime = []
+for size in sample_size:
+	print(size)
+	articles_samples = media_has_chunk["chunked_content"].sample(n=size)
+
+	before = time.time()
+	results = sentiment_task(articles_samples.values.tolist())
+	after = time.time()
+	runtime.append(after - before)
+
+pd.DataFrame({"sample_size": sample_size, "runtime": runtime}).to_csv("notebook/runtimes.csv")
+```
+
+```{python}
+#| label: "sent-pipe-runtime-estimation"
+
+runtimes = pd.read_csv("notebook/runtimes.csv")
+
+runtime = runtimes.runtime.values
+sample_size = runtimes.sample_size.values
+
+slope, intercept = np.polyfit(sample_size, runtime, 1)
+
+extend_to = media_has_chunk.shape[0] 
+extended_samples = np.linspace(sample_size.min(), extend_to, 300)
+extended_runtime = slope * extended_samples + intercept
+
+sns.set_theme(style="whitegrid", context="talk")
+
+plt.figure(figsize=(10, 6))
+
+plt.scatter(sample_size, runtime, 
+            color="#2E86C1", 
+            s=80, 
+            label="Measured Runtime",
+            zorder=3)
+
+plt.plot(extended_samples, extended_runtime, 
+         color="#E74C3C", 
+         linewidth=3,
+         label="Linear Projection")
+
+plt.axvspan(sample_size.max(), extend_to, 
+            color="gray", alpha=0.1, label="Extrapolated Region")
+
+plt.xlabel("Sample Size")
+plt.ylabel("Runtime (seconds)")
+plt.title("Runtime Scaling with Sample Size")
+plt.legend()
+plt.tight_layout()
+
+plt.show()
+```
+
+:::{.callout-note collapse="true", summary="Pipeline"}
+
+```{python}
+#| eval: false
+#| label: "sent-pipeline"
+articles = media_has_chunk.chunked_content.values.tolist()
+pred: List[dict] = sentiment_task(media_has_chunk.chunked_content.values.tolist(), truncation=True, max_length=512)
+
+result: list[str] = [{"text": text, "label": y["label"], "score": y["score"]} for text, y in zip(articles, pred)]
+sentiments = [res["label"] for res in result]
+media_has_chunk["sentiment"] = sentiments
+
+if "sentiment" in media_has_chunk.columns:
+	media_has_chunk.to_csv("data/processed/media_has_chunk.csv")
+
+with open("notebook/sentiment_analysis_results.json", "w") as fb:
+	json.dump(result, fb)
+```
+
+:::
+
+Now that we have all the chunks analyzse, we'll aggregate the results to each media.
+For this, 'negative' sentiment will have the value '-1', 'neutral' sentiment will be '0' and '1' sentiment will be '1'.
+
+```{python}
+#| label: "media-with-sentiment"
+def convert_to_numerical(sentiment: str) -> int:
+	match sentiment:
+		case "positive":
+			return 1
+		case "neutral":
+			return 0
+		case "negative":
+			return -1
+	
+media_has_chunk["num_sentiment"] = media_has_chunk["sentiment"].apply(convert_to_numerical)
+sentiment_per_media = media_has_chunk.groupby("media_id").num_sentiment.mean().reset_index()
+
+media = media.merge(sentiment_per_media, on="media_id", how="left").rename(columns={"num_sentiment": "sentiment"})
+```
+
+Good, now we have a good setup to finally do some analyzis.
+
+```{python}
+#| label: "media-with-tag"
+media_with_tag = media.merge(media_has_tags, on="media_id", how="left")
+```
+
+Broadly, we could look at the average sentiment per tag.
+Morevoer, since tags represent also represent companies or products, this is helpful in identiying public sentiment about particular technologies.
+Now, some tag have very poor representation throughout the media and thus would represent a biased view of the population.
+
+Thus, we will only look at the average sentiment per tags for value having a standard errors below the 0.05 percentile.
+By using the standard error as an estimation of the true population mean, we filter out insights not reflecting the population.
+The use of the standard error relies on the assumption that the sentiment score is normally distributed.
+
+Naturally, this cannot be 100% the case, since our values do not go past -1 and 1.
+Moreover, even then, the distribution is negatively skewed, display a higher tendencies of sentiment score to be positive.
+This fact alone seem to reflect that the overall AI/Robotics market is faring well, or at least on the surface.
+Indeed, performance promises and investements are seen positively by the model.
+
+```{python}
+#| label: "sentiment-kde"
+media_with_tag.sentiment.plot(kind="kde")
+
+plt.tight_layout()
+plt.title("Sentiment Score Distribution")
+plt.show()
+```
+
+The following plot display the weighted sentiment score and also illustrate the impact of sample size on the results.
+
+First, we observe that technologies such as 'WordNet' or 'Simplilearn' seem very well percieved by the public through the September 2024 to September 2025 period.
+Alternatively, 'EleutherAI' or 'ClearviewAI' display the opposite patterns, with a significantly low sentiment score, indicating that they haven't been faring so well.
+
+Secondly, we observe, with no real suprise that concepts such as 'HighPerformanceComputing' recieves a lot of positive attention lately. This is reflected by the general hyper-scaling trend as well as the massive investement in companies such as Nvidia or Intel.
+Alternatively, concepts such as 'Personnalisation' are also very well recieved. Seeing this concepts ranking among the best seen tags is a sign the market of using AI technologies for consumer benefits and automatization is booming.
+Further interpreting this, we could sign this as a positive sign for the open-source community of the AI technologies. Indeed, they efforts in making those technologies available to everyone and help the daily lifes of regular customers is paying.
+
+On the contrary, concepts such as 'MilitaryAndDefense' and 'Fairness' have mitigated score. Indicating that those concepts are real public concerns with the recent advancement of AI technologies, and that improvement are still to be made.
+However, no real concepts seems to be majorily negatively seen, as least when focusing on the tags we're the most certain about our estimates. 
+
+However, it is important that, since the distribution isn't normally distributed, the standard error is not a **unbiased** estimator.
+
+```{python}
+#| label: "sentiment-per-tag"
+# Compute the less biased metric 
+sentiment_per_tag = (
+    media_with_tag
+    .groupby("tag")
+    .agg(
+        sent_mean=("sentiment", "mean"),
+        sent_sde=("sentiment", "sem")
+    )
+)
+sentiment_per_tag = sentiment_per_tag.dropna()
+alpha = sentiment_per_tag.sent_sde.quantile(0.05)
+sentiment_per_tag = sentiment_per_tag.loc[sentiment_per_tag.sent_sde <= alpha]
+
+# Get the best and worse tags
+top_5_tag = sentiment_per_tag.sort_values(by="sent_mean", ascending=False).iloc[:5]
+worse_5_tag = sentiment_per_tag.sort_values(by="sent_mean", ascending=True).iloc[:5]
+
+# Plot
+pd.concat([top_5_tag, worse_5_tag], axis=0).plot(kind="bar", y="sent_mean")
+plt.title("Weighted Sentiment for Top/Bottom 5 Tags")
+plt.tight_layout()
+plt.show()
+```
+
+Interestingly, we could a similar analysis for the media themselves.
+Is there any media posting more positive news that negative news?
+This could potentially be a sign of a biased media or poor journalism quality.
+Indeed, a media should strive to be neutral, while avoiding to be biased to towards extremes,
+thus publishing news for the relevance, whether they have a positive or negative connotation.
+
+
+Looking at the following plot, again filtered by a standard errors below the 5th percentile, we can see that some media, such as 'aifund' or 'smmt.co' are linked with a particularly positive sentiment.
+Taking into account the current hype for those technologies, a mean score of 0.6 and over 0.8 is high, indicating a high chance that their news don't cover the full spectrum of events.
+
+Alternatively, we can also observe that there is no media biased towards negative news, which is a good thing, as spreading fear unnecessarily isn't good.
+
+However, some media such as "vogue", or very popular media such as 'morningstart' have a much more neutral coverage, indicating their overall neutral position and balanced news coverage.
+This is a sign for trust in those media.
+
+```{python}
+#| label: "sentiment-per-domain"
+# Compute the less biased metric 
+sentiment_per_domain = (
+    media_with_tag
+    .groupby("domain")
+    .agg(
+        sent_mean=("sentiment", "mean"),
+        sent_sde=("sentiment", "sem")
+    )
+)
+alpha = sentiment_per_domain.sent_sde.quantile(0.05)
+sentiment_per_domain = sentiment_per_domain.loc[sentiment_per_domain.sent_sde <= alpha]
+# Get the best and worse domains
+top_5_domain = sentiment_per_domain.sort_values(by="sent_mean", ascending=False).iloc[:5]
+worse_5_domain = sentiment_per_domain.sort_values(by="sent_mean", ascending=True).iloc[:5]
+
+# Plot
+pd.concat([top_5_domain, worse_5_domain], axis=0).plot(kind="bar", y="sent_mean")
+plt.title("Weighted Sentiment for Top/Bottom 5 Media")
+plt.tight_layout()
+plt.show()
+```
 
 ## Entities and Relationship Extraction
 
