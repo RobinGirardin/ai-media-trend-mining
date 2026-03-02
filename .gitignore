@@ -2,6 +2,10 @@
 
 /.quarto/
 
+# Python bytecode and cache
+__pycache__/
+_cache/
+
 # Quarto rendered outputs
 notebook/*.html
 notebook/*_files/
@@ -14,3 +18,11 @@ notebook/*_files/
 *.ipynb
 
 /_freeze/
+
+sandbox/
+data/processed/*clean.parquet
+*.js
+*.css
+*.woff
+*.html
+**/*.quarto_ipynb
