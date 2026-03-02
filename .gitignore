@@ -18,3 +18,11 @@ notebook/*_files/
 *.ipynb
 
 /_freeze/
+
+sandbox/
+data/processed/*clean.parquet
+*.js
+*.css
+*.woff
+*.html
+**/*.quarto_ipynb
