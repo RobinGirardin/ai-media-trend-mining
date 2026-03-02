@@ -298,10 +298,11 @@ print(f"Articles without tags: {len(articles_without_tags)}")
 ```{python}
 #| echo: true
 #| warning: false
+#| cache: true
 
 # Remove empty chunks
 media_has_chunk = media_has_chunk.dropna(subset=["chunked_content"])
-media_has_chunk = media_has_chunk[media_has_chunk["chunked_content"].str.strip() != ""]
+media_has_chunk = media_has_chunk[media_has_chunk["chunked_content"].str.len() > 0]
 
 print(f"Chunks after removing empty entries: {len(media_has_chunk)}")
 ```
@@ -544,6 +545,7 @@ print(f"Chunks after removing short entries: {len(media_has_chunk)}")
 ```{python}
 #| echo: true
 #| warning: false
+#| cache: true
 def detect_language(text):
     try:
         return detect(str(text))
@@ -620,6 +622,268 @@ print("Whitespace removed.")
 ```
 
 One tag with leading/trailing whitespace was stripped. No other normalization issues were detected. The tag data is now clean and ready for analysis.
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check for potential abbreviation/acronym duplicates in tags
+# Look for short tags (likely abbreviations)
+short_tags = media_has_tags[media_has_tags["tag"].str.len() <= 5]["tag"].unique()
+print("Short tags (potential abbreviations):")
+print(sorted(short_tags))
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check if abbreviations and their expanded forms coexist as tags
+# Focus on the most obvious candidates
+candidates = ["GPT", "GPU", "RAG", "BERT", "NLP", "OCR", "TPU", "RLHF"]
+for abbr in candidates:
+    matches = media_has_tags[media_has_tags["tag"].str.contains(abbr, case=False)]["tag"].unique()
+    if len(matches) > 1:
+        print(f"{abbr}: {matches}")
+```
+
+We deliberately skip further acronym and abbreviation handling. Our check shows that the tags use specific, intentional abbreviations (e.g. `GPT`, `BERT`, `RAG`) that refer to distinct models and technologies - no inconsistencies. And: RAG and transformer-based embeddings handle abbreviations in free text implicitly, making normalization unnecessary for our downstream tasks.
+
+
+
+
+### Detection of Encoding Artefacts (Mojibake)
+
+During manual inspection of chunk-level text, we observed patterns such as:
+
+- â\x80\x9c
+- â\x80\x9d
+- Â
+- â\x80\x93
+
+These patterns are typical symptoms of UTF-8 text incorrectly decoded as Latin-1 (mojibake). This negatively impacts downstream NLP tasks, including:
+
+- tokenization
+- n-gram statistics
+- embeddings
+- language modeling
+
+To ensure clean and consistent text representation, we first detect common mojibake markers before applying corrective normalization
+
+**Detection Strategy**
+
+Following the regex-based normalization approach demonstrated in the course notebooks, we define patterns that detect:
+
+- Common mojibake byte sequences (â, Â, \x80)
+- Non-ASCII control-byte remnants
+- Suspicious high-byte characters that typically do not appear in clean English news text
+
+::: {.scroll-box}
+
+```{python}
+
+#| label: detect-mojibake
+#| echo: true
+#| warning: false
+#| #| output: true
+#| output-scroll: true
+
+
+# Common mojibake indicators
+PAT_MOJIBAKE = re.compile(r'â|Â|\x80|\x99|\x9c|\x9d')
+
+def scan_mojibake(df, col, label, n_examples=6):
+    s = df[col].fillna("")
+    
+    mask = s.str.contains(PAT_MOJIBAKE, regex=True)
+    rows_with_mojibake = int(mask.sum())
+    
+    print(f"\n=== {label} | {col} ===")
+    print(f"Rows containing mojibake markers: {rows_with_mojibake:,}")
+    
+    if rows_with_mojibake > 0:
+        print("\nExamples:")
+        for idx, txt in s[mask].head(n_examples).items():
+            print(f"- idx={idx} ...{txt[:180]}...")
+
+# Run detection
+scan_mojibake(media, "full_content", "MEDIA")
+scan_mojibake(media_has_chunk, "chunked_content", "CHUNKS")
+
+
+# Count total mojibake hits
+total_hits_media = int(media["full_content"].fillna("").str.count(PAT_MOJIBAKE).sum())
+total_hits_chunks = int(media_has_chunk["chunked_content"].fillna("").str.count(PAT_MOJIBAKE).sum())
+
+print("Total mojibake marker occurrences:")
+print(f"- MEDIA:  {total_hits_media:,}")
+print(f"- CHUNKS: {total_hits_chunks:,}")
+```
+
+:::
+
+The presence of mojibake confirms character encoding inconsistencies in the original dataset. Because these artefacts create artificial tokens and distort lexical statistics, deterministic repair is necessary prior to any downstream NLP task.
+
+```{python}
+#| label: fix-mojibake
+#| echo: true
+#| warning: false
+
+def fix_mojibake(text: str) -> str:
+    """
+    Repair UTF-8 text that was incorrectly decoded as latin-1.
+    Example:
+        â\x80\x9c  ->  “
+    """
+    if not isinstance(text, str):
+        return text
+
+    # Attempt generic latin1 -> utf8 repair
+    try:
+        repaired = text.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
+
+        # Only keep if it actually improves the text
+        if ("â" in text or "Â" in text) and ("â" not in repaired and "Â" not in repaired):
+            text = repaired
+    except Exception:
+        pass
+
+    # Targeted replacements for common remnants
+    replacements = {
+        r'â\x80\x99': '’',
+        r'â\x80\x9c': '“',
+        r'â\x80\x9d': '”',
+        r'â\x80\x98': '‘',
+        r'â\x80\x93': '–',
+        r'â\x80\x94': '—',
+        r'â\x80\xa6': '…',
+        r'Â': '',
+    }
+
+    for bad, good in replacements.items():
+        text = text.replace(bad, good)
+
+    return text
+
+
+
+media["full_content"] = media["full_content"].apply(fix_mojibake)
+media_has_chunk["chunked_content"] = media_has_chunk["chunked_content"].apply(fix_mojibake)
+```
+
+```{python}
+#| label: verify-mojibake-fix
+#| echo: true
+#| warning: false
+
+PAT_MOJIBAKE = r'â|Â|\x80|\x99|\x9c|\x9d'
+
+print("Rows still containing mojibake markers:")
+print("MEDIA:", media["full_content"].fillna("").str.contains(PAT_MOJIBAKE, regex=True).sum())
+print("CHUNKS:", media_has_chunk["chunked_content"].fillna("").str.contains(PAT_MOJIBAKE, regex=True).sum())
+```
+
+
+### Sentence-Boundary Spacing
+
+We also observed a systematic text-quality issue that persists after HTML stripping and boilerplate removal:
+
+Broken sentence spacing, where a sentence-ending punctuation mark is immediately followed by an uppercase letter (e.g., Digit.The agreement..., authenticity.Unfortunately...).
+
+
+
+```{python}
+#| label: detect-sentence-boundary-spacing
+#| echo: true
+#| warning: false
+
+
+
+# Detect missing space after punctuation
+# Protect abbreviations like U.S., S.C., E.U., etc.
+PAT_PUNCT_NO_SPACE = re.compile(r'([!?])([A-Z])|\.([A-Z])(?!\.)')
+
+def scan_text_issues(df: pd.DataFrame, col: str, label: str, n_examples: int = 6):
+    s = df[col].fillna("")
+
+    m_punct = s.str.contains(PAT_PUNCT_NO_SPACE, regex=True)
+    punct_rows = int(m_punct.sum())
+    punct_hits = int(s.str.count(PAT_PUNCT_NO_SPACE).sum())
+
+    print(f"\n=== {label} | {col} ===")
+    print(f"Rows with sentence-boundary spacing issues: {punct_rows:,}")
+    print(f"Total occurrences: {punct_hits:,}")
+
+    if punct_rows > 0:
+        print("\nExamples:")
+        for idx, txt in s[m_punct].head(n_examples).items():
+            m = PAT_PUNCT_NO_SPACE.search(txt)
+            start = max(m.start() - 45, 0)
+            end = min(m.end() + 45, len(txt))
+            print(f"- idx={idx} ...{txt[start:end]}...")
+
+scan_text_issues(media, "full_content", "MEDIA")
+scan_text_issues(media_has_chunk, "chunked_content", "CHUNKS")
+
+```
+
+**Normalization**
+
+We correct the issue by inserting a space after sentence-ending punctuation when the next character begins a new sentence.
+
+Abbreviations such as U.S., S.C., and E.U. are preserved.
+
+
+
+```{python}
+#| label: fix-sentence-boundary-spacing
+#| echo: true
+#| warning: false
+
+
+def fix_punct_spacing(text: str) -> str:
+    """
+    Insert missing spaces after sentence punctuation.
+    Protect abbreviations such as U.S., E.U., S.C.
+    """
+    if not isinstance(text, str):
+        return text
+
+    # ! and ? are safe
+    text = re.sub(r'([!?])([A-Z])', r'\1 \2', text)
+
+    # For '.', add space only if the capital letter is NOT followed by another '.'
+    text = re.sub(r'\.([A-Z])(?!\.)', r'. \1', text)
+
+    # Normalize whitespace
+    text = " ".join(text.split())
+
+    return text
+
+
+# Apply correction
+media["full_content"] = media["full_content"].apply(fix_punct_spacing)
+media_has_chunk["chunked_content"] = media_has_chunk["chunked_content"].apply(fix_punct_spacing)
+```
+
+```{python}
+#| label: verify-sentence-boundary-spacing
+#| echo: true
+#| warning: false
+
+punct_hits_media = int(
+    media["full_content"].fillna("").str.count(PAT_PUNCT_NO_SPACE).sum()
+)
+
+punct_hits_chunks = int(
+    media_has_chunk["chunked_content"].fillna("").str.count(PAT_PUNCT_NO_SPACE).sum()
+)
+
+print("After normalization:")
+print(f"- MEDIA remaining spacing issues: {punct_hits_media:,}")
+print(f"- CHUNKS remaining spacing issues: {punct_hits_chunks:,}")
+
+```
 
 
 
@@ -895,9 +1159,226 @@ plt.show()
 
 ## Entities and Relationship Extraction
 
-::: callout-warning
-This section needs to be implemented, though what exactly needs to extracted and how depends on the core questions that we want to answer.
-:::
+Previous section focused on explorations and trends analysis.
+This section builds on-top of them, extracting the main entities of the news articles and their relationships.
+Those extracted information will be the core components of our knowledge graph.
+
+Since our knowledge needs to represent the articles content and map it faithfully,
+let's have a look at the main entities present in the articles.
+
+### Entities Distribution
+
+```{python}
+import spacy
+import numpy as np
+from typing import List
+import time
+import re
+from collections import Counter
+import pprint
+nlp = spacy.load("en_core_web_trf")
+```
+
+Using `spaCy` built-in entity recognizer, we can get an generally overview that the main entities that the articles contains, as well as potential relationships.
+
+```{python}
+# Source - https://stackoverflow.com/a/70188495
+# Posted by aab
+# Retrieved 2026-02-26, License - CC BY-SA 4.0
+
+entities = {ent: spacy.explain(ent) for ent in nlp.get_pipe("ner").labels}
+pprint.pp("List of recognized entities by spacY and their description:")
+pprint.pp(entities)
+```
+
+Running the following multiple times, we observe that organizations (`ORG`), products (`PRODUCT`), persons (`PERSON`) and dates (`DATE`)
+consistently rank among the most present entities. They are followed by numerical values such as money (`MONEY`) or percentages (`PERCENT`). Alternatively, location, such as cities or countries are also well-documented ("GPE").
+
+Without context, it hard to know whether persons are are public figures, researchers, CEO, or even the author himself.
+Organizations `ORG` are mostly be public institutions, such as universities, or privates companies.
+
+Products are most often AI products or model name, such as "Claude 3.5", while
+
+Overall, we retain 3 major entities: persons, organizations, products and countries.
+The rests can be considered as informations suplementing those entities and their relationships, mainly money, such as how much a model costed, or date, as when the model was published.
+
+```{python}
+list_articles_content = media.full_content.values
+np.random.seed(25)
+sample_articles = np.random.choice(list_articles_content, size=30)
+sample_content = "".join(sample_articles)
+docs = nlp(sample_content)
+
+ent_list = [token.ent_type_ for token in docs if token.ent_type != ""]
+for ent, count in Counter(ent_list).most_common(20):
+	print(f"{ent}: {count}")
+```
+
+```{python}
+mapping = {token.text: token.ent_type_ for token in docs[:10] if token.ent_type_ != ""}
+pprint.pp(mapping)
+```
+
+Combining those entities with the articles data that we have: publisher and date of publications and tags, we can effectively map trends and AI research developement.
+
+```{python}
+#| code-fold: true
+
+import langextract as lx
+import textwrap
+
+# 1. Define the prompt and extraction rules
+prompt = textwrap.dedent("""\
+    	Extract entities such as organizations name, products such as AI models, persons and countries or locations.
+	Provide meaningful attributes for each entity to add context.
+	For each entities, extract their relationships with each other.
+	A extraction of class "relationship" must always relate to 2 entities minimum.
+    Use exact text for extractions. Do not paraphrase or overlap entities.
+    """)
+
+# 2. Provide a high-quality example to guide the model
+examples = [
+    lx.data.ExampleData(
+        text="Carnegie Mellon University’s new Robotics Innovation Center (RIC) has signed robotics company FieldAI as its first corporate tenant ahead of the facility’s formal opening in February 2026, embedding the AI-driven robotics unicorn into a 2,500 sq ft lab to advance physical AI and real-world robot deployment in complex environments",
+        extractions=[
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Carnegie Mellon University",
+                attributes={"type": "university"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="new Robotics Innovation Center (RIC)",
+                attributes={"type": "research_center"}
+            ),
+            lx.data.Extraction(
+                extraction_class="relationship",
+                extraction_text="new Robotics Innovation Center (RIC)",
+		attributes={"type": "affiliation", "party": ["Carnegie Mellon University", "Robotics Innovation Center (RIC)"], "money_amount": "unkown", "beneficiary": "unkown"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="FieldAI",
+                attributes={"type": "company"}
+            ),
+            lx.data.Extraction(
+                extraction_class="relationship",
+                extraction_text="has signed robotics company FieldAI as its first corporate tenant in February 2026",
+		attributes={"type": "partnership", "date": "February 2026", "party": ["Carnegie Mellon University", "FieldAI"], "money_amount": "unkown", "beneficiary": "FieldAI" }
+            ),
+	]
+	),
+    lx.data.ExampleData(
+        text="Robotics startup Figure AI Inc. exceeded $1 billion in Series C funding at a $39 billion post-money valuation in September 2025, enabling it to scale production of its AI-powered humanoid robots (including Figure 02 and Figure 03) and expand the Helix embodied-intelligence platform with major investors such as NVIDIA, Intel Capital, and Brookfield Asset Management.",
+        extractions=[
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Figure AI Inc.",
+                attributes={"type": "company"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="its AI-powered humanoid robots",
+		attributes={"type": "product", "owned_by": "Figure AI Inc."}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Helix embodied-intelligence platform",
+		attributes={"type": "product", "owned_by": "Figure AI Inc.", "product_name": "Helix embodied-intelligence platform"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="NVIDIA",
+                attributes={"type": "company"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Intel Capital",
+                attributes={"type": "company"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Brookfield Asset Management",
+                attributes={"type": "company"}
+            ),
+            lx.data.Extraction(
+                extraction_class="relationship",
+                extraction_text="exceeded $1 billion in Series C funding",
+		attributes={"type": "partnership", "party": ["Figure AI Inc", "NVIDIA", "Intel Capital", "Brookfield Asset Management"], "money_amount": "1000000000", "beneficiary": "Figure AI Inc"}
+            ),
+        ]
+    ),
+    lx.data.ExampleData(
+        text="Google announced it is folding its AI robotics project Intrinsic back into the parent company as a dedicated group aligned with Google DeepMind to accelerate development of AI models like Gemini Robotics for physical control systems, marking a strategic shift to unify robotics software and embodied AI under core Alphabet AI teams",
+        extractions=[
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Google",
+                attributes={"type": "company"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="its AI robotics project Intrinsic",
+		attributes={"type": "product", "owned_by": "Figure AI Inc.", "product_name": "Intrinsic"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="Google DeepMind",
+		attributes={"type": "research_group", "owned_by": "Google"}
+            ),
+            lx.data.Extraction(
+                extraction_class="entity",
+                extraction_text="accelerate development of AI models like Gemini Robotics",
+		attributes={"type": "product", "owned_by": "Google", "product_name": "Gemini Robotics"}
+            ),
+        ]
+    )
+]
+```
+
+For a easily evaluable test case, let's take a small article using a lightweight open-source model.
+On the first try, the model detected entities and relationships mostly successfully, with a few detected entities bringing few information.
+Examples are isolated "financial_amount" extraction, that can be bound to no other entities.
+
+That said, isolated extracted entities could be removed and not taken into account when constructing the graph.
+
+```{python}
+media["content_length"] = media.full_content.str.len()
+sample = media.sort_values(by="content_length", ascending=True).reset_index().iloc[5]
+# The input text to be processed
+input_text = sample.full_content
+
+print("**Article's Content:** \n", input_text)
+# Run the extraction
+result = lx.extract(
+    text_or_documents=input_text,
+    prompt_description=prompt,
+    examples=examples,
+    model_id="gemma3:27b",  # Automatically selects Ollama provider
+    model_url="http://localhost:11434",
+    fence_output=False,
+    use_schema_constraints=False
+)
+```
+
+```{python}
+#| eval: false
+lx.io.save_annotated_documents([result], output_name="extraction_results.jsonl", output_dir=".")
+html_content = lx.visualize("notebook/extraction_results.jsonl")
+with open("notebook/visualization.html", "w") as f:
+    if hasattr(html_content, 'data'):
+        f.write(html_content.data)  # For Jupyter/Colab
+    else:
+        f.write(html_content)
+```
+
+<br>
+
+![](visualization.html){width="100%" height="600px"}
+
+Considering the relatively successfull entity and relationsip extraction, the next step would be to reflect on storage.
+The main purpose of this step is to extract meaningful news information from the article, enabling better tracking of trends and new information.
+In the next section, we'll explore how we can combine the raw article data with the extracted information throughout this report in a comprehensive knowledge graph.
 
 ## Knowledge Graph {#sec-kg}
 
