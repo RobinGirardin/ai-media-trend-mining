@@ -662,6 +662,7 @@ Insert here a average token length per discussion if not already.
 :::
 
 ```{python}
+#| label: "load_model"
 #| message: false
 #| warning: false
 model_path = "cardiffnlp/twitter-roberta-base-sentiment-latest"
@@ -672,6 +673,7 @@ Taking a few examples to roughly test the model performance, we can see his succ
 
 ```{python}
 #| echo: false
+#| label: "sent-perf-overview"
 articles_samples = media_has_chunk["chunked_content"].sample(n=20, random_state=25)
 
 results = sentiment_task(articles_samples.values.tolist())
@@ -685,6 +687,8 @@ However, the runtime increase is proportional to the vectors of processed text l
 
 ```{python}
 #| echo: false
+#| eval: false
+#| label: "sent-pipeline-runtime"
 sample_size = np.arange(10, 1000, 200)
 runtime = []
 for size in sample_size:
@@ -695,9 +699,18 @@ for size in sample_size:
 	results = sentiment_task(articles_samples.values.tolist())
 	after = time.time()
 	runtime.append(after - before)
+
+pd.DataFrame({"sample_size": sample_size, "runtime": runtime}).to_csv("notebook/runtimes.csv")
 ```
 
 ```{python}
+#| label: "sent-pipe-runtime-estimation"
+
+runtimes = pd.read_csv("notebook/runtimes.csv")
+
+runtime = runtimes.runtime.values
+sample_size = runtimes.sample_size.values
+
 slope, intercept = np.polyfit(sample_size, runtime, 1)
 
 extend_to = media_has_chunk.shape[0] 
@@ -735,6 +748,7 @@ plt.show()
 
 ```{python}
 #| eval: false
+#| label: "sent-pipeline"
 articles = media_has_chunk.chunked_content.values.tolist()
 pred: List[dict] = sentiment_task(media_has_chunk.chunked_content.values.tolist(), truncation=True, max_length=512)
 
@@ -755,6 +769,7 @@ Now that we have all the chunks analyzse, we'll aggregate the results to each me
 For this, 'negative' sentiment will have the value '-1', 'neutral' sentiment will be '0' and '1' sentiment will be '1'.
 
 ```{python}
+#| label: "media-with-sentiment"
 def convert_to_numerical(sentiment: str) -> int:
 	match sentiment:
 		case "positive":
@@ -773,6 +788,7 @@ media = media.merge(sentiment_per_media, on="media_id", how="left").rename(colum
 Good, now we have a good setup to finally do some analyzis.
 
 ```{python}
+#| label: "media-with-tag"
 media_with_tag = media.merge(media_has_tags, on="media_id", how="left")
 ```
 
@@ -790,6 +806,7 @@ This fact alone seem to reflect that the overall AI/Robotics market is faring we
 Indeed, performance promises and investements are seen positively by the model.
 
 ```{python}
+#| label: "sentiment-kde"
 media_with_tag.sentiment.plot(kind="kde")
 
 plt.tight_layout()
@@ -812,6 +829,7 @@ However, no real concepts seems to be majorily negatively seen, as least when fo
 However, it is important that, since the distribution isn't normally distributed, the standard error is not a **unbiased** estimator.
 
 ```{python}
+#| label: "sentiment-per-tag"
 # Compute the less biased metric 
 sentiment_per_tag = (
     media_with_tag
@@ -830,7 +848,7 @@ top_5_tag = sentiment_per_tag.sort_values(by="sent_mean", ascending=False).iloc[
 worse_5_tag = sentiment_per_tag.sort_values(by="sent_mean", ascending=True).iloc[:5]
 
 # Plot
-pd.concat([top_5_tag, worse_5_tag], axis=0).plot(kind="bar")
+pd.concat([top_5_tag, worse_5_tag], axis=0).plot(kind="bar", y="sent_mean")
 plt.title("Weighted Sentiment for Top/Bottom 5 Tags")
 plt.tight_layout()
 plt.show()
@@ -852,6 +870,7 @@ However, some media such as "vogue", or very popular media such as 'morningstart
 This is a sign for trust in those media.
 
 ```{python}
+#| label: "sentiment-per-domain"
 # Compute the less biased metric 
 sentiment_per_domain = (
     media_with_tag
@@ -868,7 +887,7 @@ top_5_domain = sentiment_per_domain.sort_values(by="sent_mean", ascending=False)
 worse_5_domain = sentiment_per_domain.sort_values(by="sent_mean", ascending=True).iloc[:5]
 
 # Plot
-pd.concat([top_5_domain, worse_5_domain], axis=0).plot(kind="bar")
+pd.concat([top_5_domain, worse_5_domain], axis=0).plot(kind="bar", y="sent_mean")
 plt.title("Weighted Sentiment for Top/Bottom 5 Media")
 plt.tight_layout()
 plt.show()
