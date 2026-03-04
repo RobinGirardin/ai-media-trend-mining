@@ -1166,6 +1166,8 @@ The following chart shows the number of articles published per month across the 
 
 # Prepare monthly article counts
 media["month"] = media["date"].dt.to_period("M")
+# Ensure media_with_tag includes month column
+media_with_tag = media.merge(media_has_tags, on="media_id", how="left")
 monthly_counts = media.groupby("month").size().reset_index(name="count")
 monthly_counts["month_str"] = monthly_counts["month"].astype(str)
 
@@ -1574,6 +1576,7 @@ Examples are isolated "financial_amount" extraction, that can be bound to no oth
 That said, isolated extracted entities could be removed and not taken into account when constructing the graph.
 
 ```{python}
+#| eval: false
 media["content_length"] = media.full_content.str.len()
 sample = media.sort_values(by="content_length", ascending=True).reset_index().iloc[5]
 # The input text to be processed
