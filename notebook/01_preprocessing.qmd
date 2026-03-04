@@ -651,7 +651,6 @@ We deliberately skip further acronym and abbreviation handling. Our check shows 
 
 
 
-
 ### Detection of Encoding Artefacts (Mojibake)
 
 During manual inspection of chunk-level text, we observed patterns such as:
@@ -893,7 +892,7 @@ We use spaCy’s lightweight blank("en") tokenizer to generate linguistically co
 
 ```{python}
 #| label: tokenization
-#| eval: true
+#| eval: false
 # tokenizations was done in Py as we were able to use 8 parallel processing while quarto uses only 1.
 
 import pandas as pd
@@ -974,6 +973,7 @@ To reduce noise and improve signal quality, we remove stopwords using spaCy’s 
 
 ```{python}
 #| label: stopword
+#| eval: false
 
 
 # media = pd.read_parquet("data/processed/media_tls.parquet")
@@ -1015,7 +1015,7 @@ We apply the WordNet lemmatizer from NLTK to the stopword-filtered tokens. This 
 
 ```{python}
 #| label: lemmatization
-#| eval: true
+#| eval: false
 
 import nltk
 # nltk.download("wordnet")
@@ -1052,57 +1052,11 @@ print("Example lemmatization:", media["lemmas"].iloc[0][:20])
 
 ## Exploratory Analysis
 
-### Corpus Overview
-
-We start with basic corpus statistics: number of articles, chunks, tags, time range, and publishing domains.
-
-```{python}
-#| label: eda-corpus-overview
-#| echo: true
-#| warning: false
-
-print("=== Corpus Overview ===")
-print(f"Articles (media):        {len(media):,}")
-print(f"Chunks (media_has_chunk): {len(media_has_chunk):,}")
-print(f"Tags (media_has_tags):    {len(media_has_tags):,}")
-print()
-
-print("=== Date Range ===")
-print("Min date:", media["date"].min())
-print("Max date:", media["date"].max())
-print()
-
-print("=== Domain Coverage ===")
-print("Unique domains:", media["domain"].nunique())
-print(media["domain"].value_counts().head(10))
-
-```
-
-
-### Domain Distribution
-
-We inspect the top publishers to understand concentration and potential overrepresentation.
-
-```{python}
-#| label: eda-top-domains
-#| echo: true
-#| warning: false
-
-top_domains = media["domain"].value_counts().head(15)
-
-plt.figure(figsize=(8,6))
-plt.barh(top_domains.index[::-1], top_domains.values[::-1])
-plt.title("Top Publishing Domains (Top 15)")
-plt.xlabel("Number of articles")
-plt.tight_layout()
-plt.show()
-```
-
-## Temporal Analysis
-
 ::: callout-warning
 This section needs to be implemented
 :::
+
+
 
 ## Sentiment Analysis
 
@@ -1241,7 +1195,7 @@ For this, 'negative' sentiment will have the value '-1', 'neutral' sentiment wil
 
 ```{python}
 #| label: "media-with-sentiment"
-#| eval: false
+
 def convert_to_numerical(sentiment: str) -> int:
 	match sentiment:
 		case "positive":
@@ -1254,6 +1208,7 @@ def convert_to_numerical(sentiment: str) -> int:
 media_has_chunk["num_sentiment"] = media_has_chunk["sentiment"].apply(convert_to_numerical)
 sentiment_per_media = media_has_chunk.groupby("media_id").num_sentiment.mean().reset_index()
 
+media = media.drop(columns=["sentiment"], errors="ignore")
 media = media.merge(sentiment_per_media, on="media_id", how="left").rename(columns={"num_sentiment": "sentiment"})
 ```
 
@@ -1261,7 +1216,7 @@ Good, now we have a good setup to finally do some analyzis.
 
 ```{python}
 #| label: "media-with-tag"
-#| eval: false
+
 media_with_tag = media.merge(media_has_tags, on="media_id", how="left")
 ```
 
@@ -1280,7 +1235,7 @@ Indeed, performance promises and investements are seen positively by the model.
 
 ```{python}
 #| label: "sentiment-kde"
-#| eval: false
+
 media_with_tag.sentiment.plot(kind="kde")
 
 plt.tight_layout()
@@ -1304,7 +1259,7 @@ However, it is important that, since the distribution isn't normally distributed
 
 ```{python}
 #| label: "sentiment-per-tag"
-#| eval: false
+
 # Compute the less biased metric 
 sentiment_per_tag = (
     media_with_tag
@@ -1346,7 +1301,6 @@ This is a sign for trust in those media.
 
 ```{python}
 #| label: "sentiment-per-domain"
-#| eval: false
 # Compute the less biased metric 
 sentiment_per_domain = (
     media_with_tag
@@ -1369,6 +1323,497 @@ plt.tight_layout()
 plt.show()
 ```
 
+## Temporal Analysis
+
+**Articles per Month**
+
+The following chart shows the number of articles published per month across the dataset period (September 2024 – August 2025).
+
+```{python}
+#| echo: true
+#| warning: false
+#| cache: true
+
+# Prepare monthly article counts
+media["month"] = media["date"].dt.to_period("M")
+# Ensure media_with_tag includes month column
+media_with_tag = media.merge(media_has_tags, on="media_id", how="left")
+monthly_counts = media.groupby("month").size().reset_index(name="count")
+monthly_counts["month_str"] = monthly_counts["month"].astype(str)
+
+# Plot
+fig, ax = plt.subplots(figsize=(12, 5))
+ax.bar(monthly_counts["month_str"], monthly_counts["count"], color="steelblue")
+ax.set_title("Number of Articles per Month", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Number of Articles")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+The dataset covers September 2024 to August 2025, with a relatively consistent article volume of 1,100–1,700 per month. The lower counts in September 2024 and August 2025 are expected, as these months are only partially covered by the dataset.
+
+January 2025 stands out as the peak month with ~2,000 articles, which aligns with two major AI events happening in quick succession: the release of DeepSeek-R1 (January 20), a Chinese open-source model that matched OpenAI's o1 at a fraction of the cost, causing Nvidia's stock to drop nearly 17%; and the announcement of the Stargate Project (January 21), a $500 billion AI infrastructure initiative by OpenAI, SoftBank, and Oracle. These back-to-back events generated exceptional media coverage across the AI landscape.
+
+**Top 15 Tags over Time**
+
+The following heatmap illustrates how the 15 most frequent tags are distributed across months, revealing event-driven peaks and persistent background themes.
+
+```{python}
+#| echo: true
+#| warning: false
+#| cache: true
+
+# Get top 15 most frequent tags
+top_tags = media_has_tags["tag"].value_counts().head(15).index.tolist()
+
+# Merge media with tags and filter top tags
+media_tags = media.merge(media_has_tags, on="media_id", how="left")
+media_tags = media_tags[media_tags["tag"].isin(top_tags)]
+
+# Count tag occurrences per month
+media_tags["month"] = media_tags["date"].dt.to_period("M")
+heatmap_data = media_tags.groupby(["month", "tag"]).size().unstack(fill_value=0)
+heatmap_data.index = heatmap_data.index.astype(str)
+
+# Plot
+fig, ax = plt.subplots(figsize=(16, 8))
+sns.heatmap(heatmap_data.T, cmap="YlOrRd", linewidths=0.5, ax=ax)
+ax.set_title("Top 15 Tags over Time", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Tag")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+The heatmap shows clear event-driven spikes on top of stable background topics. `GenerativeAI` dominates every month, confirming its centrality in AI media coverage. LargeLanguageModel (and also Video) peaks sharply in January 2025, aligning with major releases and announcements (e.g., DeepSeek-R1 and OpenAI’s Sora coverage). In contrast, Finetuning, Audio, and Accountability stay fairly steady, indicating persistent themes rather than short-lived hype.
+
+
+**Top 5 Tags over Time**
+
+The following line chart tracks the monthly evolution of the 5 most frequent tags, allowing for a more precise comparison of their relative prominence over time.
+
+```{python}
+#| echo: true
+#| warning: false
+#| cache: true
+
+# Get top 5 most frequent tags overall
+top_5_tags = media_has_tags["tag"].value_counts().head(5).index.tolist()
+
+# Filter and count per month
+media_tags_top5 = media_tags[media_tags["tag"].isin(top_5_tags)]
+line_data = media_tags_top5.groupby(["month", "tag"]).size().unstack(fill_value=0)
+line_data.index = line_data.index.astype(str)
+
+# Plot
+fig, ax = plt.subplots(figsize=(14, 6))
+for tag in top_5_tags:
+    ax.plot(line_data.index, line_data[tag], marker="o", label=tag)
+
+ax.set_title("Top 5 Tags over Time", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Number of Articles")
+ax.legend(title="Tag", bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+The heatmap shows clear event-driven spikes on top of stable background topics. `GenerativeAI` dominates every month, confirming its centrality in AI media coverage. `LargeLanguageModel` (and also `Video`) peaks sharply in January 2025, aligning with major releases and announcements (e.g., DeepSeek-R1 and OpenAI’s Sora coverage). In contrast, `Finetuning`, `Audio`, and `Accountability` stay fairly steady, indicating persistent themes rather than short-lived hype.
+
+
+We now extend the temporal analysis by adding sentiment signals over time.
+
+**Chunk sentiment distribution over time**
+
+This plot tracks how the monthly share of `negative`, `neutral`, and `positive` chunks evolves over the observation period.
+
+```{python}
+#| echo: true
+#| warning: false
+
+chunks_with_month = media_has_chunk.merge(
+    media_with_tag[["media_id", "month"]].drop_duplicates("media_id"),
+    on="media_id",
+    how="left"
+)
+
+dist = (
+    chunks_with_month
+    .dropna(subset=["month", "sentiment"])
+    .groupby(["month", "sentiment"])
+    .size()
+    .unstack(fill_value=0)
+    .reindex(columns=["negative", "neutral", "positive"], fill_value=0)
+    .sort_index()
+)
+
+dist_share = dist.div(dist.sum(axis=1), axis=0)
+x = dist_share.index.to_timestamp() if hasattr(dist_share.index, "to_timestamp") else dist_share.index
+
+# Colors: negative = orange, neutral = gray, positive = green
+colors = {
+    "negative": "orange",
+    "neutral": "gray",
+    "positive": "green",
+}
+
+fig, ax = plt.subplots(figsize=(14, 6))
+ax.stackplot(
+    x,
+    dist_share["negative"],
+    dist_share["neutral"],
+    dist_share["positive"],
+    labels=["negative", "neutral", "positive"],
+    colors=[colors["negative"], colors["neutral"], colors["positive"]],
+)
+
+ax.set_title("Chunk Sentiment Distribution over Time (Monthly Share)", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Share of Chunks")
+ax.legend(title="Sentiment", bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+`Neutral` content dominates throughout, while `positive` remains the second-largest share. `Negative` sentiment stays comparatively small, with only a slight uptick toward mid/late 2025.
+
+**Sentiment over time for the top 5 tags**
+
+This plot compares monthly mean sentiment for the five most frequent tags to highlight which topics are consistently viewed more positively.
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Add month to media_with_tag (use timestamp for proper time axis)
+media_with_tag["month"] = pd.to_datetime(media_with_tag["date"]).dt.to_period("M").dt.to_timestamp()
+
+# Get top 5 tags from the same table used for plotting (robust against mismatches)
+top_5_tags = media_with_tag["tag"].value_counts().head(5).index.tolist()
+
+# Filter and compute mean sentiment per tag per month
+sentiment_over_time = (
+    media_with_tag[media_with_tag["tag"].isin(top_5_tags)]
+    .groupby(["month", "tag"])["sentiment"]
+    .mean()
+    .unstack()
+    .sort_index()
+)
+
+# Plot
+fig, ax = plt.subplots(figsize=(14, 6))
+for tag in top_5_tags:
+    if tag in sentiment_over_time.columns:
+        ax.plot(sentiment_over_time.index, sentiment_over_time[tag], marker="o", label=tag)
+
+ax.set_title("Sentiment over Time – Top 5 Tags", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Mean Sentiment Score")
+ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+ax.legend(title="Tag", bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+All top tags remain net-positive overall, but several show a gradual decline after early 2025. `Personalisation` stands out as the most consistently positive series across months.
+
+**DeepSeek vs. ChatGPT, Claude, Gemini, and CoPilot**
+
+This plot benchmarks DeepSeek’s monthly mean sentiment against major LLM competitors to contextualize its sentiment trajectory.
+
+```{python}
+#| echo: true
+#| warning: false
+
+compare_tags = ["DeepSeek", "ChatGPT", "Claude", "Gemini", "CoPilot"]
+
+sentiment_over_time = (
+    media_with_tag[media_with_tag["tag"].isin(compare_tags)]
+    .groupby(["month", "tag"])["sentiment"]
+    .mean()
+    .unstack()
+    .sort_index()
+)
+
+x = sentiment_over_time.index.to_timestamp() if hasattr(sentiment_over_time.index, "to_timestamp") else sentiment_over_time.index
+
+fig, ax = plt.subplots(figsize=(14, 6))
+for tag in compare_tags:
+    ax.plot(x, sentiment_over_time[tag], marker="o", label=tag)
+
+ax.set_title("Sentiment-Entwicklung über Zeit: DeepSeek vs. ChatGPT/Claude/Gemini/CoPilot", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Mean Sentiment Score")
+ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+ax.legend(title="Tag", bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+`DeepSeek` shows a sharp positive spike around late 2024 followed by normalization into the mid range. `ChatGPT` trends downward toward 2025, while `CoPilot` and `Gemini` are generally higher and more stable than the rest.
+
+
+## Topics Modelling
+
+```{python}
+#| echo: true
+#| warning: false
+
+import pandas as pd
+import os
+
+# Load cleaned data
+media = pd.read_csv("data/processed/media_cleaned.csv")
+media_has_chunk = pd.read_csv("data/processed/media_has_chunk_cleaned.csv")
+media_has_tags = pd.read_csv("data/processed/media_has_tags_cleaned.csv")
+
+# Parse date
+media["date"] = pd.to_datetime(media["date"])
+media["month"] = media["date"].dt.to_period("M")
+
+# Ensure figures directory exists
+os.makedirs("notebook/figures", exist_ok=True)
+
+print(f"Articles: {len(media)}")
+print(f"Chunks: {len(media_has_chunk)}")
+print(f"Tags: {len(media_has_tags)}")
+```
+
+We use the `all-MiniLM-L6-v2` model from the `sentence-transformers` library to generate dense vector representations (embeddings) of the article content. This model is a compact version of BERT that provides efficient and meaningful sentence embeddings, making it suitable for large-scale text analysis.
+
+```{python}
+#| echo: true
+#| warning: false
+#| eval: false
+
+from sentence_transformers import SentenceTransformer
+import numpy as np
+
+# Pre-calculate embeddings (only once) — run manually, takes ~10-25 min on CPU
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+embeddings = embedding_model.encode(
+    media["full_content"].tolist(),
+    show_progress_bar=True
+)
+
+# Save to disk
+np.save("data/processed/embeddings.npy", embeddings)
+print(f"Embeddings shape: {embeddings.shape}")
+```
+
+Now we have the **embeddings**, we can proceed to topic modeling using `BERTopic`, which combines `UMAP` for dimensionality reduction and `HDBSCAN` for clustering. This approach allows us to identify coherent topics within the news articles based on their semantic content.
+
+We follow the **BERTopic best practices** by configuring each component of the pipeline explicitly before training, allowing full control over the topic modeling process.
+
+**UMAP** reduces the 384-dimensional embeddings to 5 dimensions before clustering. We set `n_neighbors=15` as a balanced default between local and global structure, and `random_state=42` to ensure reproducible topic assignments across runs.
+
+**HDBSCAN** clusters the reduced embeddings into topics. `min_cluster_size=30` requires at least 30 articles per topic, which avoids overly granular topics given our dataset size of 16k articles. This is the key parameter to tune if the number of topics is too high or too low.
+
+**CountVectorizer** determines the representative words per topic. We enable bigrams (`ngram_range=(1, 2)`) to capture meaningful two-word expressions such as "generative ai" or "language model", and set `min_df=2` to filter out rare terms that would not generalize across articles.
+
+```{python}
+#| echo: true
+#| warning: false
+#| eval: false
+
+from umap import UMAP
+from hdbscan import HDBSCAN
+from sklearn.feature_extraction.text import CountVectorizer
+from bertopic import BERTopic
+import numpy as np
+import copy
+
+# Load pre-calculated embeddings
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+embeddings = np.load("data/processed/embeddings.npy")
+
+# UMAP - dimensionality reduction
+umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric='cosine', random_state=42)
+
+# HDBSCAN - clustering
+hdbscan_model = HDBSCAN(min_cluster_size=30, metric='euclidean', cluster_selection_method='eom', prediction_data=True)
+
+# CountVectorizer - topic representation
+vectorizer_model = CountVectorizer(stop_words="english", min_df=2, ngram_range=(1, 2))
+
+# BERTopic
+topic_model = BERTopic(
+    embedding_model=embedding_model,
+    umap_model=umap_model,
+    hdbscan_model=hdbscan_model,
+    vectorizer_model=vectorizer_model,
+    top_n_words=10,
+    verbose=True
+)
+
+topics, probs = topic_model.fit_transform(media["full_content"].tolist(), embeddings)
+print(f"Number of topics: {len(set(topics))}")
+
+# Reduce to 20 main topics
+topic_model_reduced = topic_model.reduce_topics(
+    media["full_content"].tolist(),
+    nr_topics=21
+)
+
+# Save model
+topic_model_reduced.save("data/processed/bertopic_model")
+print("Model saved.")
+```
+
+```{python}
+#| eval: false
+from umap import UMAP
+from hdbscan import HDBSCAN
+from sklearn.feature_extraction.text import CountVectorizer
+from bertopic import BERTopic
+import numpy as np
+import copy
+topic_model_reduced = BERTopic.load("data/processed/bertopic_model")
+```
+
+With 72 initial topics, the model produces more granular results than needed for interpretation. BERTopic allows merging similar topics without retraining, enabling us to consolidate the topic structure while retaining the original embeddings and semantic relationships. We reduce the number of topics to 21 (20 main topics + 1 for outliers).
+
+```{python}
+#| echo: true
+#| warning: false
+#| eval: false
+
+# Save figures for all BERTopic visualizations — run manually once
+import kaleido  # pip install kaleido
+
+topic_labels = {
+    -1: "Outliers / Misc.",
+    0:  "AI News & Tech (General)",
+    1:  "Search, SEO & Marketing",
+    2:  "Energy, Power & Robotics",
+    3:  "ML Models & Training Data",
+    4:  "Stocks & Market Ratings",
+    5:  "US Politics & China Relations",
+    6:  "Quantum Computing",
+    7:  "AI in Media & Content",
+    8:  "AI in Education (Students/Learning)",
+    9:  "Consumer Tech (Apple/5G/Devices)",
+    10: "Defense & War (Ukraine/Russia)",
+    11: "Arts & Exhibitions (Museums/Film)",
+    12: "Gaming & Players",
+    13: "Earnings & Quarterly Reports",
+    14: "Facial Recognition & Surveillance",
+    15: "UK Government & Public Services (NHS)",
+    16: "Weather, Climate & Solar",
+    17: "KPMG / Corporate Communications",
+    18: "Agent Protocols (MCP/A2A/Servers)",
+    19: "Biodiversity & Wildlife Conservation",
+}
+
+topic_model_reduced.set_topic_labels(topic_labels)
+
+# Barchart
+fig_bar = topic_model_reduced.visualize_barchart(top_n_topics=21, custom_labels=True)
+fig_bar.write_image("notebook/figures/topic_barchart.png", scale=2)
+
+# Topic similarity map
+fig_topics = topic_model_reduced.visualize_topics()
+fig_topics.write_image("notebook/figures/topic_similarity.png", scale=2)
+
+# Frequency bar chart
+import matplotlib.pyplot as plt
+topic_info = topic_model_reduced.get_topic_info().copy()
+topic_info = topic_info[topic_info["Topic"] != -1].copy()
+topic_info["Label"] = topic_info["Topic"].map(topic_labels)
+topic_info = topic_info.sort_values("Count", ascending=True)
+
+fig, ax = plt.subplots(figsize=(10, 8))
+ax.barh(topic_info["Label"], topic_info["Count"])
+ax.set_title("Topic Frequencies (Reduced Model)")
+ax.set_xlabel("Number of Articles")
+ax.set_ylabel("")
+plt.tight_layout()
+fig.savefig("notebook/figures/topic_frequencies.png", dpi=150, bbox_inches="tight")
+plt.show()
+
+# Topics over time
+timestamps = media["date"].tolist()
+topics_over_time = topic_model_reduced.topics_over_time(
+    media["full_content"].tolist(),
+    timestamps,
+    nr_bins=12
+)
+
+import pickle
+with open("data/processed/topics_over_time.pkl", "wb") as f:
+    pickle.dump(topics_over_time, f)
+
+top_topics = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+tot_filtered = topics_over_time[topics_over_time["Topic"].isin(top_topics)]
+tot_pivot = tot_filtered.pivot(index="Timestamp", columns="Topic", values="Frequency")
+tot_pivot.columns = [topic_labels[t] for t in tot_pivot.columns]
+
+fig2, ax2 = plt.subplots(figsize=(14, 6))
+for col in tot_pivot.columns:
+    ax2.plot(tot_pivot.index, tot_pivot[col], marker="o", markersize=3, label=col)
+
+ax2.set_title("Topics over Time", fontsize=14)
+ax2.set_xlabel("Month")
+ax2.set_ylabel("Frequency")
+ax2.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+fig2.savefig("notebook/figures/topics_over_time.png", dpi=150, bbox_inches="tight")
+plt.show()
+
+print("All figures saved.")
+```
+
+The 20 main topics identified by the model can be labeled based on their most representative words and the underlying themes they capture. This labeling process is subjective and relies on interpreting the top words and the articles associated with each topic.
+
+```{python}
+#| echo: false
+#| warning: false
+
+from IPython.display import Image
+Image("notebook/figures/topic_barchart.png")
+```
+
+```{python}
+#| echo: false
+#| warning: false
+
+from IPython.display import Image
+Image("notebook/figures/topic_similarity.png")
+```
+
+Now that we have a good understanding of the main topics, we can look at their frequencies and how they relate to each other.
+
+```{python}
+#| echo: false
+#| warning: false
+
+from IPython.display import Image
+Image("notebook/figures/topic_frequencies.png")
+```
+
+Loading the topics over time data and visualizing the temporal evolution of the main topics.
+
+```{python}
+#| echo: false
+#| warning: false
+
+from IPython.display import Image
+Image("notebook/figures/topics_over_time.png")
+```
+
+Using BERTopic with pre-calculated sentence embeddings, UMAP dimensionality reduction, and HDBSCAN clustering, we identified 72 initial topics which were subsequently reduced to 20 coherent themes. These span technical domains such as ML Models & Training Data, Quantum Computing, and Agent Protocols, applied areas like Healthcare, Autonomous Vehicles, and Cybersecurity, and broader societal themes including AI Regulation, Stocks & Market Ratings, and US Politics & China Relations.
+
+The topics over time confirm that AI News & Tech (General) dominates throughout the dataset period, with a notable spike in Search, SEO & Marketing in January 2025.
+
+
 ## Entities and Relationship Extraction
 
 Previous section focused on explorations and trends analysis.
@@ -1381,7 +1826,7 @@ let's have a look at the main entities present in the articles.
 ### Entities Distribution
 
 ```{python}
-
+#| eval: false
 import spacy
 import numpy as np
 from typing import List
@@ -1430,6 +1875,7 @@ for ent, count in Counter(ent_list).most_common(20):
 ```
 
 ```{python}
+#| eval: false
 mapping = {token.text: token.ent_type_ for token in docs[:10] if token.ent_type_ != ""}
 pprint.pp(mapping)
 ```
