@@ -892,7 +892,7 @@ We use spaCy’s lightweight blank("en") tokenizer to generate linguistically co
 
 ```{python}
 #| label: tokenization
-#| eval: true
+#| eval: false
 # tokenizations was done in Py as we were able to use 8 parallel processing while quarto uses only 1.
 
 import pandas as pd
@@ -947,6 +947,7 @@ To reduce noise and improve signal quality, we remove stopwords using spaCy’s 
 
 ```{python}
 #| label: stopword
+#| eval: false
 
 
 # media = pd.read_parquet("data/processed/media_tls.parquet")
@@ -988,7 +989,7 @@ We apply the WordNet lemmatizer from NLTK to the stopword-filtered tokens. This 
 
 ```{python}
 #| label: lemmatization
-#| eval: true
+#| eval: false
 
 import nltk
 nltk.download("wordnet")
@@ -1526,6 +1527,260 @@ plt.show()
 `DeepSeek` shows a sharp positive spike around late 2024 followed by normalization into the mid range. `ChatGPT` trends downward toward 2025, while `CoPilot` and `Gemini` are generally higher and more stable than the rest.
 
 
+## Topics Modelling
+
+```{python}
+#| echo: true
+#| warning: false
+
+import pandas as pd
+import os
+
+# Load cleaned data
+media = pd.read_csv("data/processed/media_cleaned.csv")
+media_has_chunk = pd.read_csv("data/processed/media_has_chunk_cleaned.csv")
+media_has_tags = pd.read_csv("data/processed/media_has_tags_cleaned.csv")
+
+# Parse date
+media["date"] = pd.to_datetime(media["date"])
+media["month"] = media["date"].dt.to_period("M")
+
+# Ensure figures directory exists
+os.makedirs("notebook/figures", exist_ok=True)
+
+print(f"Articles: {len(media)}")
+print(f"Chunks: {len(media_has_chunk)}")
+print(f"Tags: {len(media_has_tags)}")
+```
+
+We use the `all-MiniLM-L6-v2` model from the `sentence-transformers` library to generate dense vector representations (embeddings) of the article content. This model is a compact version of BERT that provides efficient and meaningful sentence embeddings, making it suitable for large-scale text analysis.
+
+```{python}
+#| echo: true
+#| warning: false
+#| eval: false
+
+from sentence_transformers import SentenceTransformer
+import numpy as np
+
+# Pre-calculate embeddings (only once) — run manually, takes ~10-25 min on CPU
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+embeddings = embedding_model.encode(
+    media["full_content"].tolist(),
+    show_progress_bar=True
+)
+
+# Save to disk
+np.save("data/processed/embeddings.npy", embeddings)
+print(f"Embeddings shape: {embeddings.shape}")
+```
+
+Now we have the **embeddings**, we can proceed to topic modeling using `BERTopic`, which combines `UMAP` for dimensionality reduction and `HDBSCAN` for clustering. This approach allows us to identify coherent topics within the news articles based on their semantic content.
+
+We follow the **BERTopic best practices** by configuring each component of the pipeline explicitly before training, allowing full control over the topic modeling process.
+
+**UMAP** reduces the 384-dimensional embeddings to 5 dimensions before clustering. We set `n_neighbors=15` as a balanced default between local and global structure, and `random_state=42` to ensure reproducible topic assignments across runs.
+
+**HDBSCAN** clusters the reduced embeddings into topics. `min_cluster_size=30` requires at least 30 articles per topic, which avoids overly granular topics given our dataset size of 16k articles. This is the key parameter to tune if the number of topics is too high or too low.
+
+**CountVectorizer** determines the representative words per topic. We enable bigrams (`ngram_range=(1, 2)`) to capture meaningful two-word expressions such as "generative ai" or "language model", and set `min_df=2` to filter out rare terms that would not generalize across articles.
+
+```{python}
+#| echo: true
+#| warning: false
+#| eval: false
+
+from umap import UMAP
+from hdbscan import HDBSCAN
+from sklearn.feature_extraction.text import CountVectorizer
+from bertopic import BERTopic
+import numpy as np
+import copy
+
+# Load pre-calculated embeddings
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+embeddings = np.load("data/processed/embeddings.npy")
+
+# UMAP - dimensionality reduction
+umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric='cosine', random_state=42)
+
+# HDBSCAN - clustering
+hdbscan_model = HDBSCAN(min_cluster_size=30, metric='euclidean', cluster_selection_method='eom', prediction_data=True)
+
+# CountVectorizer - topic representation
+vectorizer_model = CountVectorizer(stop_words="english", min_df=2, ngram_range=(1, 2))
+
+# BERTopic
+topic_model = BERTopic(
+    embedding_model=embedding_model,
+    umap_model=umap_model,
+    hdbscan_model=hdbscan_model,
+    vectorizer_model=vectorizer_model,
+    top_n_words=10,
+    verbose=True
+)
+
+topics, probs = topic_model.fit_transform(media["full_content"].tolist(), embeddings)
+print(f"Number of topics: {len(set(topics))}")
+
+# Reduce to 20 main topics
+topic_model_reduced = topic_model.reduce_topics(
+    media["full_content"].tolist(),
+    nr_topics=21
+)
+
+# Save model
+topic_model_reduced.save("data/processed/bertopic_model")
+print("Model saved.")
+```
+
+```{python}
+#| eval: false
+from umap import UMAP
+from hdbscan import HDBSCAN
+from sklearn.feature_extraction.text import CountVectorizer
+from bertopic import BERTopic
+import numpy as np
+import copy
+topic_model_reduced = BERTopic.load("data/processed/bertopic_model")
+```
+
+With 72 initial topics, the model produces more granular results than needed for interpretation. BERTopic allows merging similar topics without retraining, enabling us to consolidate the topic structure while retaining the original embeddings and semantic relationships. We reduce the number of topics to 21 (20 main topics + 1 for outliers).
+
+```{python}
+#| echo: true
+#| warning: false
+#| eval: false
+
+# Save figures for all BERTopic visualizations — run manually once
+import kaleido  # pip install kaleido
+
+topic_labels = {
+    -1: "Outliers / Misc.",
+    0:  "AI News & Tech (General)",
+    1:  "Search, SEO & Marketing",
+    2:  "Energy, Power & Robotics",
+    3:  "ML Models & Training Data",
+    4:  "Stocks & Market Ratings",
+    5:  "US Politics & China Relations",
+    6:  "Quantum Computing",
+    7:  "AI in Media & Content",
+    8:  "AI in Education (Students/Learning)",
+    9:  "Consumer Tech (Apple/5G/Devices)",
+    10: "Defense & War (Ukraine/Russia)",
+    11: "Arts & Exhibitions (Museums/Film)",
+    12: "Gaming & Players",
+    13: "Earnings & Quarterly Reports",
+    14: "Facial Recognition & Surveillance",
+    15: "UK Government & Public Services (NHS)",
+    16: "Weather, Climate & Solar",
+    17: "KPMG / Corporate Communications",
+    18: "Agent Protocols (MCP/A2A/Servers)",
+    19: "Biodiversity & Wildlife Conservation",
+}
+
+topic_model_reduced.set_topic_labels(topic_labels)
+
+# Barchart
+fig_bar = topic_model_reduced.visualize_barchart(top_n_topics=21, custom_labels=True)
+fig_bar.write_image("notebook/figures/topic_barchart.png", scale=2)
+
+# Topic similarity map
+fig_topics = topic_model_reduced.visualize_topics()
+fig_topics.write_image("notebook/figures/topic_similarity.png", scale=2)
+
+# Frequency bar chart
+import matplotlib.pyplot as plt
+topic_info = topic_model_reduced.get_topic_info().copy()
+topic_info = topic_info[topic_info["Topic"] != -1].copy()
+topic_info["Label"] = topic_info["Topic"].map(topic_labels)
+topic_info = topic_info.sort_values("Count", ascending=True)
+
+fig, ax = plt.subplots(figsize=(10, 8))
+ax.barh(topic_info["Label"], topic_info["Count"])
+ax.set_title("Topic Frequencies (Reduced Model)")
+ax.set_xlabel("Number of Articles")
+ax.set_ylabel("")
+plt.tight_layout()
+fig.savefig("notebook/figures/topic_frequencies.png", dpi=150, bbox_inches="tight")
+plt.show()
+
+# Topics over time
+timestamps = media["date"].tolist()
+topics_over_time = topic_model_reduced.topics_over_time(
+    media["full_content"].tolist(),
+    timestamps,
+    nr_bins=12
+)
+
+import pickle
+with open("data/processed/topics_over_time.pkl", "wb") as f:
+    pickle.dump(topics_over_time, f)
+
+top_topics = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+tot_filtered = topics_over_time[topics_over_time["Topic"].isin(top_topics)]
+tot_pivot = tot_filtered.pivot(index="Timestamp", columns="Topic", values="Frequency")
+tot_pivot.columns = [topic_labels[t] for t in tot_pivot.columns]
+
+fig2, ax2 = plt.subplots(figsize=(14, 6))
+for col in tot_pivot.columns:
+    ax2.plot(tot_pivot.index, tot_pivot[col], marker="o", markersize=3, label=col)
+
+ax2.set_title("Topics over Time", fontsize=14)
+ax2.set_xlabel("Month")
+ax2.set_ylabel("Frequency")
+ax2.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+fig2.savefig("notebook/figures/topics_over_time.png", dpi=150, bbox_inches="tight")
+plt.show()
+
+print("All figures saved.")
+```
+
+The 20 main topics identified by the model can be labeled based on their most representative words and the underlying themes they capture. This labeling process is subjective and relies on interpreting the top words and the articles associated with each topic.
+
+```{python}
+#| echo: false
+#| warning: false
+
+from IPython.display import Image
+Image("notebook/figures/topic_barchart.png")
+```
+
+```{python}
+#| echo: false
+#| warning: false
+
+from IPython.display import Image
+Image("notebook/figures/topic_similarity.png")
+```
+
+Now that we have a good understanding of the main topics, we can look at their frequencies and how they relate to each other.
+
+```{python}
+#| echo: false
+#| warning: false
+
+from IPython.display import Image
+Image("notebook/figures/topic_frequencies.png")
+```
+
+Loading the topics over time data and visualizing the temporal evolution of the main topics.
+
+```{python}
+#| echo: false
+#| warning: false
+
+from IPython.display import Image
+Image("notebook/figures/topics_over_time.png")
+```
+
+Using BERTopic with pre-calculated sentence embeddings, UMAP dimensionality reduction, and HDBSCAN clustering, we identified 72 initial topics which were subsequently reduced to 20 coherent themes. These span technical domains such as ML Models & Training Data, Quantum Computing, and Agent Protocols, applied areas like Healthcare, Autonomous Vehicles, and Cybersecurity, and broader societal themes including AI Regulation, Stocks & Market Ratings, and US Politics & China Relations.
+
+The topics over time confirm that AI News & Tech (General) dominates throughout the dataset period, with a notable spike in Search, SEO & Marketing in January 2025.
+
+
 ## Entities and Relationship Extraction
 
 Previous section focused on explorations and trends analysis.
@@ -1538,6 +1793,7 @@ let's have a look at the main entities present in the articles.
 ### Entities Distribution
 
 ```{python}
+#| eval: false
 import spacy
 import numpy as np
 from typing import List
@@ -1551,6 +1807,7 @@ nlp = spacy.load("en_core_web_trf")
 Using `spaCy` built-in entity recognizer, we can get an generally overview that the main entities that the articles contains, as well as potential relationships.
 
 ```{python}
+#| eval: false
 # Source - https://stackoverflow.com/a/70188495
 # Posted by aab
 # Retrieved 2026-02-26, License - CC BY-SA 4.0
@@ -1572,6 +1829,7 @@ Overall, we retain 3 major entities: persons, organizations, products and countr
 The rests can be considered as informations suplementing those entities and their relationships, mainly money, such as how much a model costed, or date, as when the model was published.
 
 ```{python}
+#| eval: false
 list_articles_content = media.full_content.values
 np.random.seed(25)
 sample_articles = np.random.choice(list_articles_content, size=30)
@@ -1584,6 +1842,7 @@ for ent, count in Counter(ent_list).most_common(20):
 ```
 
 ```{python}
+#| eval: false
 mapping = {token.text: token.ent_type_ for token in docs[:10] if token.ent_type_ != ""}
 pprint.pp(mapping)
 ```
@@ -1592,6 +1851,7 @@ Combining those entities with the articles data that we have: publisher and date
 
 ```{python}
 #| code-fold: true
+#| eval: false
 
 import langextract as lx
 import textwrap
