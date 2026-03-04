@@ -905,37 +905,63 @@ import spacy
 
 #media = pd.read_parquet("data/processed/media_clean.parquet")
 
+import spacy
+# Initialize lightweight English tokenizer
 nlp = spacy.blank("en")
 
+# Contraction remnants that may appear if apostrophes were stripped earlier
+CONTRACTION_REMNANTS = {"s", "t", "ve", "re", "ll", "d", "m"}
+
+# Important short tokens we want to keep
+KEEP_SHORT = {"ai", "ml", "us", "uk", "eu"}
+
 def tokenize_doc(doc):
-    return [t.text.lower() for t in doc if t.is_alpha]
+    tokens = []
+    
+    for tok in doc:
+        # Keep only alphabetic tokens
+        if not tok.is_alpha:
+            continue
+        
+        t = tok.text.lower()
+        
+        # Remove contraction leftovers
+        if t in CONTRACTION_REMNANTS:
+            continue
+        
+        # Remove very short tokens unless they are important acronyms
+        if len(t) <= 2 and t not in KEEP_SHORT:
+            continue
+        
+        tokens.append(t)
+    
+    return tokens
+
+
+# =========================
+# TOKENIZING MEDIA
+# =========================
 
 texts = media["full_content"].fillna("").tolist()
 
 docs = nlp.pipe(texts, batch_size=1000, n_process=4)
+
 media["tokens"] = [tokenize_doc(d) for d in docs]
 
-#media.to_parquet("data/processed/media_tls.parquet", index=False)
-
-print("Example tokens:", media["tokens"].iloc[0][:20])
+print("Example MEDIA tokens:", media["tokens"].iloc[0][:20])
 
 
-
+# =========================
 # TOKENIZING CHUNKS
-
-
-#media_has_chunk = pd.read_parquet("data/processed/media_has_chunk_clean.parquet")
-
-nlp = spacy.blank("en")  # reinitialize is fine
+# =========================
 
 texts = media_has_chunk["chunked_content"].fillna("").tolist()
 
 docs = nlp.pipe(texts, batch_size=2000, n_process=4)
+
 media_has_chunk["tokens"] = [tokenize_doc(d) for d in docs]
 
-#media_has_chunk.to_parquet("data/processed/media_has_chunk_tls.parquet", index=False)
-
-print("Example tokens:", media_has_chunk["tokens"].iloc[0][:20])
+print("Example CHUNK tokens:", media_has_chunk["tokens"].iloc[0][:20])
 ```
 
 
@@ -992,8 +1018,8 @@ We apply the WordNet lemmatizer from NLTK to the stopword-filtered tokens. This 
 #| eval: true
 
 import nltk
-nltk.download("wordnet")
-nltk.download("omw-1.4")
+# nltk.download("wordnet")
+# nltk.download("omw-1.4")
 from nltk.stem import WordNetLemmatizer
 
 # Load existing file
@@ -1016,8 +1042,8 @@ media_has_chunk["lemmas"] = media_has_chunk["tokens_no_stop"].apply(
 )
 
 
-# media.to_parquet("data/processed/media_tls.parquet", index=False)
-# media_has_chunk.to_parquet("data/processed/media_has_chunk_tls.parquet", index=False)
+media.to_parquet("sandbox/media_tls.parquet", index=False)
+media_has_chunk.to_parquet("sandbox/media_has_chunk_tls.parquet", index=False)
 
 print("Example lemmatization:", media["lemmas"].iloc[0][:20])
 
@@ -1026,9 +1052,51 @@ print("Example lemmatization:", media["lemmas"].iloc[0][:20])
 
 ## Exploratory Analysis
 
-::: callout-warning
-This section needs to be implemented
-:::
+### Corpus Overview
+
+We start with basic corpus statistics: number of articles, chunks, tags, time range, and publishing domains.
+
+```{python}
+#| label: eda-corpus-overview
+#| echo: true
+#| warning: false
+
+print("=== Corpus Overview ===")
+print(f"Articles (media):        {len(media):,}")
+print(f"Chunks (media_has_chunk): {len(media_has_chunk):,}")
+print(f"Tags (media_has_tags):    {len(media_has_tags):,}")
+print()
+
+print("=== Date Range ===")
+print("Min date:", media["date"].min())
+print("Max date:", media["date"].max())
+print()
+
+print("=== Domain Coverage ===")
+print("Unique domains:", media["domain"].nunique())
+print(media["domain"].value_counts().head(10))
+
+```
+
+
+### Domain Distribution
+
+We inspect the top publishers to understand concentration and potential overrepresentation.
+
+```{python}
+#| label: eda-top-domains
+#| echo: true
+#| warning: false
+
+top_domains = media["domain"].value_counts().head(15)
+
+plt.figure(figsize=(8,6))
+plt.barh(top_domains.index[::-1], top_domains.values[::-1])
+plt.title("Top Publishing Domains (Top 15)")
+plt.xlabel("Number of articles")
+plt.tight_layout()
+plt.show()
+```
 
 ## Temporal Analysis
 
@@ -1065,6 +1133,7 @@ Insert here a average token length per discussion if not already.
 #| label: "load_model"
 #| message: false
 #| warning: false
+#| eval: false
 model_path = "cardiffnlp/twitter-roberta-base-sentiment-latest"
 sentiment_task = pipeline("sentiment-analysis", model=model_path, tokenizer=model_path)
 ```
@@ -1074,6 +1143,7 @@ Taking a few examples to roughly test the model performance, we can see his succ
 ```{python}
 #| echo: false
 #| label: "sent-perf-overview"
+#| eval: false
 articles_samples = media_has_chunk["chunked_content"].sample(n=20, random_state=25)
 
 results = sentiment_task(articles_samples.values.tolist())
@@ -1105,6 +1175,7 @@ pd.DataFrame({"sample_size": sample_size, "runtime": runtime}).to_csv("notebook/
 
 ```{python}
 #| label: "sent-pipe-runtime-estimation"
+#| eval: false
 
 runtimes = pd.read_csv("notebook/runtimes.csv")
 
@@ -1170,6 +1241,7 @@ For this, 'negative' sentiment will have the value '-1', 'neutral' sentiment wil
 
 ```{python}
 #| label: "media-with-sentiment"
+#| eval: false
 def convert_to_numerical(sentiment: str) -> int:
 	match sentiment:
 		case "positive":
@@ -1189,6 +1261,7 @@ Good, now we have a good setup to finally do some analyzis.
 
 ```{python}
 #| label: "media-with-tag"
+#| eval: false
 media_with_tag = media.merge(media_has_tags, on="media_id", how="left")
 ```
 
@@ -1207,6 +1280,7 @@ Indeed, performance promises and investements are seen positively by the model.
 
 ```{python}
 #| label: "sentiment-kde"
+#| eval: false
 media_with_tag.sentiment.plot(kind="kde")
 
 plt.tight_layout()
@@ -1230,6 +1304,7 @@ However, it is important that, since the distribution isn't normally distributed
 
 ```{python}
 #| label: "sentiment-per-tag"
+#| eval: false
 # Compute the less biased metric 
 sentiment_per_tag = (
     media_with_tag
@@ -1271,6 +1346,7 @@ This is a sign for trust in those media.
 
 ```{python}
 #| label: "sentiment-per-domain"
+#| eval: false
 # Compute the less biased metric 
 sentiment_per_domain = (
     media_with_tag
@@ -1305,6 +1381,7 @@ let's have a look at the main entities present in the articles.
 ### Entities Distribution
 
 ```{python}
+
 import spacy
 import numpy as np
 from typing import List
@@ -1318,6 +1395,7 @@ nlp = spacy.load("en_core_web_trf")
 Using `spaCy` built-in entity recognizer, we can get an generally overview that the main entities that the articles contains, as well as potential relationships.
 
 ```{python}
+#| eval: false
 # Source - https://stackoverflow.com/a/70188495
 # Posted by aab
 # Retrieved 2026-02-26, License - CC BY-SA 4.0
@@ -1339,6 +1417,7 @@ Overall, we retain 3 major entities: persons, organizations, products and countr
 The rests can be considered as informations suplementing those entities and their relationships, mainly money, such as how much a model costed, or date, as when the model was published.
 
 ```{python}
+#| eval: false
 list_articles_content = media.full_content.values
 np.random.seed(25)
 sample_articles = np.random.choice(list_articles_content, size=30)
@@ -1359,6 +1438,7 @@ Combining those entities with the articles data that we have: publisher and date
 
 ```{python}
 #| code-fold: true
+#| eval: false
 
 import langextract as lx
 import textwrap
@@ -1479,6 +1559,7 @@ Examples are isolated "financial_amount" extraction, that can be bound to no oth
 That said, isolated extracted entities could be removed and not taken into account when constructing the graph.
 
 ```{python}
+#| eval: false
 media["content_length"] = media.full_content.str.len()
 sample = media.sort_values(by="content_length", ascending=True).reset_index().iloc[5]
 # The input text to be processed
