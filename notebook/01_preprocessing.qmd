@@ -33,6 +33,8 @@ However, cleaning and exploration is necessary before any analysis. As such, thi
 ```{python}
 #| label: imports
 #| echo: false
+import matplotlib.pyplot as plt
+import pickle
 import spacy
 import numpy as np
 from typing import List
@@ -960,6 +962,8 @@ with open("data/processed/langextract_extractions_json.pkl", "rb") as file:
 	extract = pickle.load(file)
 ```
 
+### Extraction Exploration
+
 Out of all the entities extracted, the most common entities extracted revolved around
 Google and related search team or product, such as Google DeepMind, Gemini Robotics or Intrinsic.
 Unsurprisingly, China and United States (or U.S.) also appear very often the 'AI-race' between the USA and China,
@@ -968,7 +972,7 @@ is a term mentioned, at least in the Western part of the world.
 Interestingly, Russia is also a entity that appears often, although they seems relatively quiet in the AI space.
 
 ```{python}
-#| label: most-common-entities 
+#| label: most-common-langextract-entities 
 
 entities_counts = Counter([ex["entity"]["entity_text"] for ex in extract if "entity" in ex.keys()])
 n_unique_entities = len(entities_counts.keys())
@@ -1033,7 +1037,9 @@ coc = pd.read_parquet("data/processed/co_occurrence_matrix.parquet", engine="fas
 ```{python}
 #| label: heatmap-co-occurrence-matrix
 #| eval: false
-sns.heatmap(coc)
+fig, ax = plt.subplots()
+sns.heatmap(coc, ax=ax)
+ax.tick_params("x", rotation=45)
 plt.show()
 plt.savefig("notebook/heatmap-co-occurrence-matrix.png")
 ```
@@ -1045,7 +1051,7 @@ As our co-occurrence matrix can be considered a 'similarity' matrix, we do not n
 As per the very peculiar distribution, we won't use a scaling step as to avoid messing with the relationships strength between entities.
 Further supporting this claim, a trial with scaling deliver much worse result in terms of clusters.
 
-![Co-Occurrence Matrix](notebook/heatmap-co-occurrence-matrix.png)
+![Co-Occurrence Matrix](heatmap-co-occ-matrix.png)
 
 ```{python}
 #| eval: false
