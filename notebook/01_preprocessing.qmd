@@ -51,12 +51,17 @@ import langextract as lx
 import textwrap
 import seaborn as sns
 
+import torch
+from scipy.stats import sem
+from typing import List
 from bs4 import BeautifulSoup
 import html
-
+import numpy as np
+import json
 import re
 from collections import Counter
 
+from transformers import pipeline
 from langdetect import detect, LangDetectException
 ```
 
@@ -304,10 +309,11 @@ print(f"Articles without tags: {len(articles_without_tags)}")
 ```{python}
 #| echo: true
 #| warning: false
+#| cache: true
 
 # Remove empty chunks
 media_has_chunk = media_has_chunk.dropna(subset=["chunked_content"])
-media_has_chunk = media_has_chunk[media_has_chunk["chunked_content"].str.strip() != ""]
+media_has_chunk = media_has_chunk[media_has_chunk["chunked_content"].str.len() > 0]
 
 print(f"Chunks after removing empty entries: {len(media_has_chunk)}")
 ```
@@ -550,6 +556,7 @@ print(f"Chunks after removing short entries: {len(media_has_chunk)}")
 ```{python}
 #| echo: true
 #| warning: false
+#| cache: true
 def detect_language(text):
     try:
         return detect(str(text))
@@ -627,26 +634,1435 @@ print("Whitespace removed.")
 
 One tag with leading/trailing whitespace was stripped. No other normalization issues were detected. The tag data is now clean and ready for analysis.
 
+```{python}
+#| echo: true
+#| warning: false
 
+# Check for potential abbreviation/acronym duplicates in tags
+# Look for short tags (likely abbreviations)
+short_tags = media_has_tags[media_has_tags["tag"].str.len() <= 5]["tag"].unique()
+print("Short tags (potential abbreviations):")
+print(sorted(short_tags))
+```
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Check if abbreviations and their expanded forms coexist as tags
+# Focus on the most obvious candidates
+candidates = ["GPT", "GPU", "RAG", "BERT", "NLP", "OCR", "TPU", "RLHF"]
+for abbr in candidates:
+    matches = media_has_tags[media_has_tags["tag"].str.contains(abbr, case=False)]["tag"].unique()
+    if len(matches) > 1:
+        print(f"{abbr}: {matches}")
+```
+
+We deliberately skip further acronym and abbreviation handling. Our check shows that the tags use specific, intentional abbreviations (e.g. `GPT`, `BERT`, `RAG`) that refer to distinct models and technologies - no inconsistencies. And: RAG and transformer-based embeddings handle abbreviations in free text implicitly, making normalization unnecessary for our downstream tasks.
+
+
+
+### Detection of Encoding Artefacts (Mojibake)
+
+During manual inspection of chunk-level text, we observed patterns such as:
+
+- â\x80\x9c
+- â\x80\x9d
+- Â
+- â\x80\x93
+
+These patterns are typical symptoms of UTF-8 text incorrectly decoded as Latin-1 (mojibake). This negatively impacts downstream NLP tasks, including:
+
+- tokenization
+- n-gram statistics
+- embeddings
+- language modeling
+
+To ensure clean and consistent text representation, we first detect common mojibake markers before applying corrective normalization
+
+**Detection Strategy**
+
+Following the regex-based normalization approach demonstrated in the course notebooks, we define patterns that detect:
+
+- Common mojibake byte sequences (â, Â, \x80)
+- Non-ASCII control-byte remnants
+- Suspicious high-byte characters that typically do not appear in clean English news text
+
+::: {.scroll-box}
+
+```{python}
+
+#| label: detect-mojibake
+#| echo: true
+#| warning: false
+#| #| output: true
+#| output-scroll: true
+
+
+# Common mojibake indicators
+PAT_MOJIBAKE = re.compile(r'â|Â|\x80|\x99|\x9c|\x9d')
+
+def scan_mojibake(df, col, label, n_examples=6):
+    s = df[col].fillna("")
+    
+    mask = s.str.contains(PAT_MOJIBAKE, regex=True)
+    rows_with_mojibake = int(mask.sum())
+    
+    print(f"\n=== {label} | {col} ===")
+    print(f"Rows containing mojibake markers: {rows_with_mojibake:,}")
+    
+    if rows_with_mojibake > 0:
+        print("\nExamples:")
+        for idx, txt in s[mask].head(n_examples).items():
+            print(f"- idx={idx} ...{txt[:180]}...")
+
+# Run detection
+scan_mojibake(media, "full_content", "MEDIA")
+scan_mojibake(media_has_chunk, "chunked_content", "CHUNKS")
+
+
+# Count total mojibake hits
+total_hits_media = int(media["full_content"].fillna("").str.count(PAT_MOJIBAKE).sum())
+total_hits_chunks = int(media_has_chunk["chunked_content"].fillna("").str.count(PAT_MOJIBAKE).sum())
+
+print("Total mojibake marker occurrences:")
+print(f"- MEDIA:  {total_hits_media:,}")
+print(f"- CHUNKS: {total_hits_chunks:,}")
+```
+
+:::
+
+The presence of mojibake confirms character encoding inconsistencies in the original dataset. Because these artefacts create artificial tokens and distort lexical statistics, deterministic repair is necessary prior to any downstream NLP task.
+
+```{python}
+#| label: fix-mojibake
+#| echo: true
+#| warning: false
+
+def fix_mojibake(text: str) -> str:
+    """
+    Repair UTF-8 text that was incorrectly decoded as latin-1.
+    Example:
+        â\x80\x9c  ->  “
+    """
+    if not isinstance(text, str):
+        return text
+
+    # Attempt generic latin1 -> utf8 repair
+    try:
+        repaired = text.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
+
+        # Only keep if it actually improves the text
+        if ("â" in text or "Â" in text) and ("â" not in repaired and "Â" not in repaired):
+            text = repaired
+    except Exception:
+        pass
+
+    # Targeted replacements for common remnants
+    replacements = {
+        r'â\x80\x99': '’',
+        r'â\x80\x9c': '“',
+        r'â\x80\x9d': '”',
+        r'â\x80\x98': '‘',
+        r'â\x80\x93': '–',
+        r'â\x80\x94': '—',
+        r'â\x80\xa6': '…',
+        r'Â': '',
+    }
+
+    for bad, good in replacements.items():
+        text = text.replace(bad, good)
+
+    return text
+
+
+
+media["full_content"] = media["full_content"].apply(fix_mojibake)
+media_has_chunk["chunked_content"] = media_has_chunk["chunked_content"].apply(fix_mojibake)
+```
+
+```{python}
+#| label: verify-mojibake-fix
+#| echo: true
+#| warning: false
+
+PAT_MOJIBAKE = r'â|Â|\x80|\x99|\x9c|\x9d'
+
+print("Rows still containing mojibake markers:")
+print("MEDIA:", media["full_content"].fillna("").str.contains(PAT_MOJIBAKE, regex=True).sum())
+print("CHUNKS:", media_has_chunk["chunked_content"].fillna("").str.contains(PAT_MOJIBAKE, regex=True).sum())
+```
+
+
+### Sentence-Boundary Spacing
+
+We also observed a systematic text-quality issue that persists after HTML stripping and boilerplate removal:
+
+Broken sentence spacing, where a sentence-ending punctuation mark is immediately followed by an uppercase letter (e.g., Digit.The agreement..., authenticity.Unfortunately...).
+
+
+
+```{python}
+#| label: detect-sentence-boundary-spacing
+#| echo: true
+#| warning: false
+
+
+
+# Detect missing space after punctuation
+# Protect abbreviations like U.S., S.C., E.U., etc.
+PAT_PUNCT_NO_SPACE = re.compile(r'([!?])([A-Z])|\.([A-Z])(?!\.)')
+
+def scan_text_issues(df: pd.DataFrame, col: str, label: str, n_examples: int = 6):
+    s = df[col].fillna("")
+
+    m_punct = s.str.contains(PAT_PUNCT_NO_SPACE, regex=True)
+    punct_rows = int(m_punct.sum())
+    punct_hits = int(s.str.count(PAT_PUNCT_NO_SPACE).sum())
+
+    print(f"\n=== {label} | {col} ===")
+    print(f"Rows with sentence-boundary spacing issues: {punct_rows:,}")
+    print(f"Total occurrences: {punct_hits:,}")
+
+    if punct_rows > 0:
+        print("\nExamples:")
+        for idx, txt in s[m_punct].head(n_examples).items():
+            m = PAT_PUNCT_NO_SPACE.search(txt)
+            start = max(m.start() - 45, 0)
+            end = min(m.end() + 45, len(txt))
+            print(f"- idx={idx} ...{txt[start:end]}...")
+
+scan_text_issues(media, "full_content", "MEDIA")
+scan_text_issues(media_has_chunk, "chunked_content", "CHUNKS")
+
+```
+
+**Normalization**
+
+We correct the issue by inserting a space after sentence-ending punctuation when the next character begins a new sentence.
+
+Abbreviations such as U.S., S.C., and E.U. are preserved.
+
+
+
+```{python}
+#| label: fix-sentence-boundary-spacing
+#| echo: true
+#| warning: false
+
+
+def fix_punct_spacing(text: str) -> str:
+    """
+    Insert missing spaces after sentence punctuation.
+    Protect abbreviations such as U.S., E.U., S.C.
+    """
+    if not isinstance(text, str):
+        return text
+
+    # ! and ? are safe
+    text = re.sub(r'([!?])([A-Z])', r'\1 \2', text)
+
+    # For '.', add space only if the capital letter is NOT followed by another '.'
+    text = re.sub(r'\.([A-Z])(?!\.)', r'. \1', text)
+
+    # Normalize whitespace
+    text = " ".join(text.split())
+
+    return text
+
+
+# Apply correction
+media["full_content"] = media["full_content"].apply(fix_punct_spacing)
+media_has_chunk["chunked_content"] = media_has_chunk["chunked_content"].apply(fix_punct_spacing)
+```
+
+```{python}
+#| label: verify-sentence-boundary-spacing
+#| echo: true
+#| warning: false
+
+punct_hits_media = int(
+    media["full_content"].fillna("").str.count(PAT_PUNCT_NO_SPACE).sum()
+)
+
+punct_hits_chunks = int(
+    media_has_chunk["chunked_content"].fillna("").str.count(PAT_PUNCT_NO_SPACE).sum()
+)
+
+print("After normalization:")
+print(f"- MEDIA remaining spacing issues: {punct_hits_media:,}")
+print(f"- CHUNKS remaining spacing issues: {punct_hits_chunks:,}")
+
+```
+
+
+
+### Tokenization
+
+We use spaCy’s lightweight blank("en") tokenizer to generate linguistically consistent tokens. This approach preserves reliable token boundaries while significantly reducing computational overhead compared to loading a full language model. The blank pipeline provides efficient handling of punctuation and token segmentation, while remaining fully compatible with subsequent stopword removal and normalization steps.
+
+```{python}
+#| label: tokenization
+#| eval: true
+
+import pandas as pd
+import spacy
+
+
+# TOKENIZING MEDIA
+
+
+#media = pd.read_parquet("data/processed/media_clean.parquet")
+
+import spacy
+# Initialize lightweight English tokenizer
+nlp = spacy.blank("en")
+
+# Contraction remnants that may appear if apostrophes were stripped earlier
+CONTRACTION_REMNANTS = {"s", "t", "ve", "re", "ll", "d", "m"}
+
+# Important short tokens we want to keep
+KEEP_SHORT = {"ai", "ml", "us", "uk", "eu"}
+
+def tokenize_doc(doc):
+    tokens = []
+    
+    for tok in doc:
+        # Keep only alphabetic tokens
+        if not tok.is_alpha:
+            continue
+        
+        t = tok.text.lower()
+        
+        # Remove contraction leftovers
+        if t in CONTRACTION_REMNANTS:
+            continue
+        
+        # Remove very short tokens unless they are important acronyms
+        if len(t) <= 2 and t not in KEEP_SHORT:
+            continue
+        
+        tokens.append(t)
+    
+    return tokens
+
+
+# =========================
+# TOKENIZING MEDIA
+# =========================
+
+texts = media["full_content"].fillna("").tolist()
+
+docs = nlp.pipe(texts, batch_size=1000, n_process=1)
+
+media["tokens"] = [tokenize_doc(d) for d in docs]
+
+print("Example MEDIA tokens:", media["tokens"].iloc[0][:20])
+
+
+# =========================
+# TOKENIZING CHUNKS
+# =========================
+
+texts = media_has_chunk["chunked_content"].fillna("").tolist()
+
+docs = nlp.pipe(texts, batch_size=2000, n_process=1)
+
+media_has_chunk["tokens"] = [tokenize_doc(d) for d in docs]
+
+print("Example CHUNK tokens:", media_has_chunk["tokens"].iloc[0][:20])
+```
+
+
+
+### Stopword removal
+
+Stopwords are high-frequency functional words (e.g., the, is, and, of) that carry limited semantic meaning in isolation. While essential for grammatical structure, they contribute little to topic discrimination or thematic analysis. In large corpora, stopwords can dominate frequency statistics and obscure meaningful lexical patterns.
+
+To reduce noise and improve signal quality, we remove stopwords using spaCy’s built-in English stopword list. This ensures consistency with the tokenization step while maintaining computational efficiency. Stopword removal reduces vocabulary size, improves interpretability of term-frequency distributions, and enhances downstream tasks such as topic modeling and trend analysis.
+
+```{python}
+#| label: stopword
+#| eval: true
+
+
+# media = pd.read_parquet("data/processed/media_tls.parquet")
+# media_has_chunk = pd.read_parquet("data/processed/media_has_chunk_tls.parquet")
+
+
+
+stop_words = nlp.Defaults.stop_words
+
+# Remove stopwords
+media["tokens_no_stop"] = media["tokens"].apply(
+    lambda tokens: [t for t in tokens if t not in stop_words]
+)
+
+media_has_chunk["tokens_no_stop"] = media_has_chunk["tokens"].apply(
+    lambda tokens: [t for t in tokens if t not in stop_words]
+)
+
+# Save intermediate
+# media.to_parquet("data/processed/media_tls.parquet", index=False)
+# media_has_chunk.to_parquet("data/processed/media_has_chunk_tls.parquet", index=False)
+
+print("Example after stop word removal:", media["tokens_no_stop"].iloc[0][:20])
+```
+
+
+
+### Lemmatization
+
+Lemmatization reduces inflected or derived word forms to their base or dictionary form (lemma). For example:
+
+- models, modeling, modeled → model
+- improves, improving → improve
+
+Unlike stemming, which applies heuristic truncation rules, lemmatization preserves linguistically valid root forms. This improves interpretability and ensures that semantically identical words are treated as a single feature during analysis.
+
+We apply the WordNet lemmatizer from NLTK to the stopword-filtered tokens. This lightweight approach balances computational efficiency with linguistic normalization, allowing consistent vocabulary consolidation across the corpus.
+
+
+```{python}
+#| label: lemmatization
+#| eval: true
+
+import nltk
+# nltk.download("wordnet")
+# nltk.download("omw-1.4")
+from nltk.stem import WordNetLemmatizer
+
+# Load existing file
+# media = pd.read_parquet("data/processed/media_tls.parquet")
+# media_has_chunk = pd.read_parquet("data/processed/media_has_chunk_tls.parquet")
+
+
+
+# Lemmatization
+lemmatizer = WordNetLemmatizer()
+
+
+media["lemmas"] = media["tokens_no_stop"].apply(
+    lambda tokens: [lemmatizer.lemmatize(t) for t in tokens]
+)
+
+
+media_has_chunk["lemmas"] = media_has_chunk["tokens_no_stop"].apply(
+    lambda tokens: [lemmatizer.lemmatize(t) for t in tokens]
+)
+
+
+# media.to_parquet("sandbox/media_tls.parquet", index=False)
+# media_has_chunk.to_parquet("sandbox/media_has_chunk_tls.parquet", index=False)
+
+print("Example lemmatization:", media["lemmas"].iloc[0][:20])
+
+```
 
 
 ## Exploratory Analysis
 
-::: callout-warning
-This section needs to be implemented
+
+Before proceeding to advanced NLP techniques such as sentiment analysis, entity extraction, or knowledge graph construction, it is essential to understand the structural and linguistic characteristics of the corpus.
+
+Exploratory Data Analysis (EDA) in NLP serves several purposes:
+
+- Assessing corpus scale and distribution
+- Evaluating document and chunk length suitability for modeling and RAG
+- Understanding vocabulary richness and lexical diversity
+- Detecting potential bias across domains
+- Identifying dominant topics through tags
+- Observing temporal publication dynamics
+
+This step ensures that downstream modeling decisions (tokenization, chunking strategy, embedding size, filtering thresholds) are grounded in empirical evidence rather than assumptions.
+
+### Corpus Overview
+
+::: columns
+::: {.column width="35%"}
+**Corpus Lenght Metrics**
+    
+
+```{python}
+#| label: Structural_overview
+
+
+print("Number of articles:", len(media))
+print("Number of chunks:", len(media_has_chunk))
+print("Number of tags:", len(media_has_tags))
+print("Unique domains:", media["domain"].nunique())
+
+```
+
+
+```{python}
+#| label: doc_lenght_distribution
+
+media["doc_length"] = media["full_content"].str.split().str.len()
+
+media["doc_length"].describe().round(0).astype(int)
+```
+
 :::
 
-## Temporal Analysis
+::: {.column width="65%"}
+**Histogram of Article Word Counts**
 
-::: callout-warning
-This section needs to be implemented
+```{python}
+#| label: Doc_lenghtdistro_plot
+
+
+mean_len = media["doc_length"].mean()
+median_len = media["doc_length"].median()
+
+plt.figure(figsize=(6,4))
+plt.hist(media["doc_length"], bins=50)
+plt.axvline(mean_len, linestyle='--', label=f"Mean ({mean_len:.0f})")
+plt.axvline(median_len, linestyle='-', label=f"Median ({median_len:.0f})")
+#plt.title("Document Length Distribution")
+plt.xlabel("Number of Words")
+plt.ylabel("Frequency")
+plt.legend()
+plt.show()
+```
+
 :::
+:::
+
+
+The distribution is right-skewed, as shown in the histogram. Most articles fall between 900–1600 words, which is typical for technology journalism and analytical reporting.
+
+The long tail (up to ~9,300 words) likely represents:
+
+- In-depth investigative pieces
+- possible Policy papers
+- and Long-form analysis
+
+The relatively small gap between mean and median suggests the skew is present but not extreme.
+
+### Paragraph-Level Analysis
+
+Chunks are critical for downstream NLP tasks such as Retrieval-Augmented Generation (RAG), embedding-based semantic search, and Knowledge Graph (KG) construction. While document-level analysis informs us about the overall corpus structure, chunk-level analysis determines whether the segmentation strategy is appropriate for modeling.
+
+In this dataset, chunks correspond to individual paragraphs extracted from each article.
+
+::: columns
+::: {.column width="35%"}
+
+```{python}
+
+media_has_chunk["chunk_length"] = media_has_chunk["chunked_content"].str.split().str.len()
+
+media_has_chunk["chunk_length"].describe().round(0).astype(int)
+
+```
+
+:::
+::: {.column width="65%"}
+
+```{python}
+
+mean_len = media["doc_length"].mean()
+median_len = media["doc_length"].median()
+
+plt.figure(figsize=(6,4))
+
+plt.hist(media["doc_length"].clip(upper=4000), bins=60)
+
+plt.axvline(mean_len, linestyle='--', label=f"Mean ({mean_len:.0f})")
+plt.axvline(median_len, linestyle='-', label=f"Median ({median_len:.0f})")
+
+plt.title("Document Length Distribution (Clipped at 4000 Words)")
+plt.xlabel("Number of Words")
+plt.ylabel("Frequency")
+plt.legend()
+plt.show()
+```
+
+:::
+:::
+
+With a median of 43 words, chunks are relatively small. This suggests that while fine-grained retrieval is possible, semantic richness per chunk may be limited. For RAG applications, it may be beneficial to re-chunk paragraphs into larger segments (e.g., 200–400 words) to increase contextual density.
+
+### Vocabulary Exploration
+
+Top Words (After Stopword Removal)
+
+Vocabulary exploration helps us understand the lexical composition of the corpus. By examining word frequencies, vocabulary size, and lexical diversity after stopword removal, we can identify the dominant terms and assess how varied the language is across the AI media articles.
+
+```{python}
+#| label: top_words
+
+
+from collections import Counter
+
+all_tokens = media["tokens_no_stop"].explode()
+
+word_counts = Counter(all_tokens)
+
+word_counts.most_common(20)
+```
+
+
+
+```{python}
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+
+# Generate word cloud from frequency dictionary
+wordcloud = WordCloud(
+    width=1200,
+    height=600,
+    background_color="white",
+    colormap="viridis"
+).generate_from_frequencies(word_counts)
+
+# Plot
+plt.figure(figsize=(10,5))
+plt.imshow(wordcloud, interpolation="bilinear")
+plt.axis("off")
+plt.title("Word Cloud of Most Frequent Terms in AI Media Corpus")
+plt.show()
+```
+
+
+The word cloud confirms that the corpus is dominated by AI-related terminology such as “AI”, “model”, “data”, and “technology”, reflecting the dataset’s focus on developments in artificial intelligence.
+
+::: {.callout-note collapse="true"}
+During vocabulary inspection, isolated tokens such as “s” and “t” were observed. These originate from contraction splitting (e.g., “it’s”, “don’t”) during tokenization. We went back to tokenization and an additional filtering based on token length was applied to remove such artifacts and improve vocabulary quality.
+:::
+
+
+**Vocabulary size**
+
+```{python}
+
+
+vocab_size = len(word_counts)
+print("Vocabulary size:", vocab_size)
+
+```
+
+The vocabulary analysis after stopword removal reveals a vocabulary size of 144,873 unique tokens across the corpus. This indicates a very large and diverse lexical space, which is expected given the dataset consists of thousands of news articles discussing different aspects of artificial intelligence, technology, policy, and industry developments.
+
+**Lexical Diversity**
+```{python}
+
+
+total_tokens = len(all_tokens)
+unique_tokens = len(set(all_tokens))
+
+lexical_diversity = unique_tokens / total_tokens
+
+print("Lexical diversity:", round(lexical_diversity, 4))
+
+```
+The lexical diversity score of 0.0109 represents the ratio between unique tokens and the total number of tokens in the corpus. In large text collections such as news corpora, lexical diversity values tend to be relatively low because many important domain terms (e.g., AI, model, data, technology, research) appear repeatedly across articles. This repetition reflects the shared terminology used when discussing developments in artificial intelligence.
+
+Overall, the results indicate that the corpus contains both substantial vocabulary richness and strong thematic consistency. A large vocabulary size suggests that the dataset captures a wide range of topics and entities related to AI, while the relatively low lexical diversity is typical of large journalistic corpora where specialized terminology is frequently reused.
+
+### Articles per Domain
+
+```{python}
+#| label: articles
+
+top_domains = media["domain"].value_counts().head(20)
+print(top_domains)
+
+```
+
+
+```{python}
+#| label: plot_articles
+
+top_domains.plot(kind="bar", figsize=(12,5))
+
+```
+
+The domain distribution reveals that a small number of media outlets contribute a large portion of the articles. This indicates a certain level of source concentration, which may introduce editorial bias or thematic emphasis depending on the publishing outlets represented in the dataset.
+
+Understanding this distribution is important when interpreting trends derived from the corpus.
+
+### Tag Distribution
+
+The tag distribution highlights the main topics covered in the dataset. GenerativeAI appears most frequently, followed by tags such as Video, LargeLanguageModel, and Personalisation, indicating a strong focus on generative technologies and large language models. Other tags like OpenAI, ChatGPT, and Robotics show that the corpus also captures developments in specific AI systems and applications.
+
+```{python}
+#| label: tag_distribution
+#| warning: false
+#
+top_tags = media_has_tags["tag"].value_counts().head(20)
+
+plt.figure(figsize=(12,5))
+top_tags.plot(kind="bar")
+
+plt.title("Top Tags in AI Media Dataset")
+plt.xlabel("Tag")
+plt.ylabel("Number of Articles")
+plt.xticks(rotation=45)
+plt.show()
+```
+
+
+
+
+
 
 ## Sentiment Analysis
 
-::: callout-warning
-This section needs to be implemented
+Sentiment analysis  is a crucial analysis whose goal is to extract sentiment out of a text.
+It is often news in product reviews to estimate customer satisfaction or for social analysis on different media.
+The sentiment is often expressed, either in a continuous score between -1 (negative) and 1 (positive), or in discrete value: -1, 0 (neutral), 1.
+
+In our case, the goal is somewhat similar: we want to extract sentiment out of news articles.
+The goal is to gather an general understanding of how is the AI media discourse percieved, thus potentially extrapolating on the market reliability or stability.
+Naturally, sentiment is inherently subjective. Furthermore, the result effectively depends on a model and unsupervised data.
+As such, **isolated** are to be taken lightly.
+
+Considering that we're currently handling unsupervised and highlighly contextual data, lexicon-based approach or machine learning model would probably prove lacking.
+Moreover, language model have to perform very well on a variety of task (@kumar2023comprehensivereviewsentimentanalysis), allow for powerful transfer learning.
+This is the technique that we're currently using.
+As fine-tuning a sentiment analysis language model isn't this section purpose, and would take much time considering the lack of labels,
+we leverage a fine-tuned RoBERTa model on twitter short texts, achieving very good performance and nuance comprehension (`cardiffnlp/twitter-roberta-base-sentiment-latest`).
+
+Moreover, given that the average sentence length is fairly big, and thus unmanageable for most portable models, we'll conduct the sentiment on chunks instead of whole documents.
+Later, we could just aggregated the lables on a article level.
+Morevoero  this approach would allow us to have a more granular understanding of each article.
+
+:::{.callout-warning}
+Insert here a average token length per discussion if not already.
 :::
+
+```{python}
+#| label: "load_model"
+#| message: false
+#| warning: false
+#| eval: false
+model_path = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+sentiment_task = pipeline("sentiment-analysis", model=model_path, tokenizer=model_path)
+```
+
+Taking a few examples to roughly test the model performance, we can see his successfuly labelling, as well as efficient inference time.
+
+```{python}
+#| echo: false
+#| label: "sent-perf-overview"
+#| eval: false
+articles_samples = media_has_chunk["chunked_content"].sample(n=20, random_state=25)
+
+results = sentiment_task(articles_samples.values.tolist())
+for text, res in zip(articles_samples, results):
+	print(f"**{res['label']} ({np.round(res['score'], 2)})**")
+	print(text, end="\n\n")
+```
+
+Performing the analysis on the entirety of the dataset would take a considerable amount of time.
+However, the runtime increase is proportional to the vectors of processed text length, and enable a fairly accurate estimation of the total runtime: ~7 hours.
+
+```{python}
+#| echo: false
+#| eval: false
+#| label: "sent-pipeline-runtime"
+sample_size = np.arange(10, 1000, 200)
+runtime = []
+for size in sample_size:
+	print(size)
+	articles_samples = media_has_chunk["chunked_content"].sample(n=size)
+
+	before = time.time()
+	results = sentiment_task(articles_samples.values.tolist())
+	after = time.time()
+	runtime.append(after - before)
+
+pd.DataFrame({"sample_size": sample_size, "runtime": runtime}).to_csv("notebook/runtimes.csv")
+```
+
+```{python}
+#| label: "sent-pipe-runtime-estimation"
+#| eval: false
+
+runtimes = pd.read_csv("notebook/runtimes.csv")
+
+runtime = runtimes.runtime.values
+sample_size = runtimes.sample_size.values
+
+slope, intercept = np.polyfit(sample_size, runtime, 1)
+
+extend_to = media_has_chunk.shape[0] 
+extended_samples = np.linspace(sample_size.min(), extend_to, 300)
+extended_runtime = slope * extended_samples + intercept
+
+sns.set_theme(style="whitegrid", context="talk")
+
+plt.figure(figsize=(10, 6))
+
+plt.scatter(sample_size, runtime, 
+            color="#2E86C1", 
+            s=80, 
+            label="Measured Runtime",
+            zorder=3)
+
+plt.plot(extended_samples, extended_runtime, 
+         color="#E74C3C", 
+         linewidth=3,
+         label="Linear Projection")
+
+plt.axvspan(sample_size.max(), extend_to, 
+            color="gray", alpha=0.1, label="Extrapolated Region")
+
+plt.xlabel("Sample Size")
+plt.ylabel("Runtime (seconds)")
+plt.title("Runtime Scaling with Sample Size")
+plt.legend()
+plt.tight_layout()
+
+plt.show()
+```
+
+:::{.callout-note collapse="true", summary="Pipeline"}
+
+```{python}
+#| eval: false
+#| label: "sent-pipeline"
+articles = media_has_chunk.chunked_content.values.tolist()
+pred: List[dict] = sentiment_task(media_has_chunk.chunked_content.values.tolist(), truncation=True, max_length=512)
+
+result: list[str] = [{"text": text, "label": y["label"], "score": y["score"]} for text, y in zip(articles, pred)]
+sentiments = [res["label"] for res in result]
+media_has_chunk["sentiment"] = sentiments
+
+if "sentiment" in media_has_chunk.columns:
+	media_has_chunk.to_csv("data/processed/media_has_chunk.csv")
+
+with open("notebook/sentiment_analysis_results.json", "w") as fb:
+	json.dump(result, fb)
+```
+
+:::
+
+Now that we have all the chunks analyzse, we'll aggregate the results to each media.
+For this, 'negative' sentiment will have the value '-1', 'neutral' sentiment will be '0' and '1' sentiment will be '1'.
+
+```{python}
+#| label: "media-with-sentiment"
+
+def convert_to_numerical(sentiment: str) -> int:
+	match sentiment:
+		case "positive":
+			return 1
+		case "neutral":
+			return 0
+		case "negative":
+			return -1
+	
+media_has_chunk["num_sentiment"] = media_has_chunk["sentiment"].apply(convert_to_numerical)
+sentiment_per_media = media_has_chunk.groupby("media_id").num_sentiment.mean().reset_index()
+
+media = media.drop(columns=["sentiment"], errors="ignore")
+media = media.merge(sentiment_per_media, on="media_id", how="left").rename(columns={"num_sentiment": "sentiment"})
+```
+
+Good, now we have a good setup to finally do some analyzis.
+
+```{python}
+#| label: "media-with-tag"
+
+media_with_tag = media.merge(media_has_tags, on="media_id", how="left")
+```
+
+Broadly, we could look at the average sentiment per tag.
+Morevoer, since tags represent also represent companies or products, this is helpful in identiying public sentiment about particular technologies.
+Now, some tag have very poor representation throughout the media and thus would represent a biased view of the population.
+
+Thus, we will only look at the average sentiment per tags for value having a standard errors below the 0.05 percentile.
+By using the standard error as an estimation of the true population mean, we filter out insights not reflecting the population.
+The use of the standard error relies on the assumption that the sentiment score is normally distributed.
+
+Naturally, this cannot be 100% the case, since our values do not go past -1 and 1.
+Moreover, even then, the distribution is negatively skewed, display a higher tendencies of sentiment score to be positive.
+This fact alone seem to reflect that the overall AI/Robotics market is faring well, or at least on the surface.
+Indeed, performance promises and investements are seen positively by the model.
+
+```{python}
+#| label: "sentiment-kde"
+
+media_with_tag.sentiment.plot(kind="kde")
+
+plt.tight_layout()
+plt.title("Sentiment Score Distribution")
+plt.show()
+```
+
+The following plot display the weighted sentiment score and also illustrate the impact of sample size on the results.
+
+First, we observe that technologies such as 'WordNet' or 'Simplilearn' seem very well percieved by the public through the September 2024 to September 2025 period.
+Alternatively, 'EleutherAI' or 'ClearviewAI' display the opposite patterns, with a significantly low sentiment score, indicating that they haven't been faring so well.
+
+Secondly, we observe, with no real suprise that concepts such as 'HighPerformanceComputing' recieves a lot of positive attention lately. This is reflected by the general hyper-scaling trend as well as the massive investement in companies such as Nvidia or Intel.
+Alternatively, concepts such as 'Personnalisation' are also very well recieved. Seeing this concepts ranking among the best seen tags is a sign the market of using AI technologies for consumer benefits and automatization is booming.
+Further interpreting this, we could sign this as a positive sign for the open-source community of the AI technologies. Indeed, they efforts in making those technologies available to everyone and help the daily lifes of regular customers is paying.
+
+On the contrary, concepts such as 'MilitaryAndDefense' and 'Fairness' have mitigated score. Indicating that those concepts are real public concerns with the recent advancement of AI technologies, and that improvement are still to be made.
+However, no real concepts seems to be majorily negatively seen, as least when focusing on the tags we're the most certain about our estimates. 
+
+However, it is important that, since the distribution isn't normally distributed, the standard error is not a **unbiased** estimator.
+
+```{python}
+#| label: "sentiment-per-tag"
+
+# Compute the less biased metric 
+sentiment_per_tag = (
+    media_with_tag
+    .groupby("tag")
+    .agg(
+        sent_mean=("sentiment", "mean"),
+        sent_sde=("sentiment", "sem")
+    )
+)
+sentiment_per_tag = sentiment_per_tag.dropna()
+alpha = sentiment_per_tag.sent_sde.quantile(0.05)
+sentiment_per_tag = sentiment_per_tag.loc[sentiment_per_tag.sent_sde <= alpha]
+
+# Get the best and worse tags
+top_5_tag = sentiment_per_tag.sort_values(by="sent_mean", ascending=False).iloc[:5]
+worse_5_tag = sentiment_per_tag.sort_values(by="sent_mean", ascending=True).iloc[:5]
+
+# Plot
+pd.concat([top_5_tag, worse_5_tag], axis=0).plot(kind="bar", y="sent_mean")
+plt.title("Weighted Sentiment for Top/Bottom 5 Tags")
+plt.tight_layout()
+plt.show()
+```
+
+Interestingly, we could a similar analysis for the media themselves.
+Is there any media posting more positive news that negative news?
+This could potentially be a sign of a biased media or poor journalism quality.
+Indeed, a media should strive to be neutral, while avoiding to be biased to towards extremes,
+thus publishing news for the relevance, whether they have a positive or negative connotation.
+
+
+Looking at the following plot, again filtered by a standard errors below the 5th percentile, we can see that some media, such as 'aifund' or 'smmt.co' are linked with a particularly positive sentiment.
+Taking into account the current hype for those technologies, a mean score of 0.6 and over 0.8 is high, indicating a high chance that their news don't cover the full spectrum of events.
+
+Alternatively, we can also observe that there is no media biased towards negative news, which is a good thing, as spreading fear unnecessarily isn't good.
+
+However, some media such as "vogue", or very popular media such as 'morningstart' have a much more neutral coverage, indicating their overall neutral position and balanced news coverage.
+This is a sign for trust in those media.
+
+```{python}
+#| label: "sentiment-per-domain"
+# Compute the less biased metric 
+sentiment_per_domain = (
+    media_with_tag
+    .groupby("domain")
+    .agg(
+        sent_mean=("sentiment", "mean"),
+        sent_sde=("sentiment", "sem")
+    )
+)
+alpha = sentiment_per_domain.sent_sde.quantile(0.05)
+sentiment_per_domain = sentiment_per_domain.loc[sentiment_per_domain.sent_sde <= alpha]
+# Get the best and worse domains
+top_5_domain = sentiment_per_domain.sort_values(by="sent_mean", ascending=False).iloc[:5]
+worse_5_domain = sentiment_per_domain.sort_values(by="sent_mean", ascending=True).iloc[:5]
+
+# Plot
+pd.concat([top_5_domain, worse_5_domain], axis=0).plot(kind="bar", y="sent_mean")
+plt.title("Weighted Sentiment for Top/Bottom 5 Media")
+plt.tight_layout()
+plt.show()
+```
+
+## Temporal Analysis
+
+**Articles per Month**
+
+The following chart shows the number of articles published per month across the dataset period (September 2024 – August 2025).
+
+```{python}
+#| echo: true
+#| warning: false
+#| cache: true
+
+# Prepare monthly article counts
+media["month"] = media["date"].dt.to_period("M")
+# Ensure media_with_tag includes month column
+media_with_tag = media.merge(media_has_tags, on="media_id", how="left")
+monthly_counts = media.groupby("month").size().reset_index(name="count")
+monthly_counts["month_str"] = monthly_counts["month"].astype(str)
+
+# Plot
+fig, ax = plt.subplots(figsize=(12, 5))
+ax.bar(monthly_counts["month_str"], monthly_counts["count"], color="steelblue")
+ax.set_title("Number of Articles per Month", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Number of Articles")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+The dataset covers September 2024 to August 2025, with a relatively consistent article volume of 1,100–1,700 per month. The lower counts in September 2024 and August 2025 are expected, as these months are only partially covered by the dataset.
+
+January 2025 stands out as the peak month with ~2,000 articles, which aligns with two major AI events happening in quick succession: the release of DeepSeek-R1 (January 20), a Chinese open-source model that matched OpenAI's o1 at a fraction of the cost, causing Nvidia's stock to drop nearly 17%; and the announcement of the Stargate Project (January 21), a $500 billion AI infrastructure initiative by OpenAI, SoftBank, and Oracle. These back-to-back events generated exceptional media coverage across the AI landscape.
+
+**Top 15 Tags over Time**
+
+The following heatmap illustrates how the 15 most frequent tags are distributed across months, revealing event-driven peaks and persistent background themes.
+
+```{python}
+#| echo: true
+#| warning: false
+#| cache: true
+
+# Get top 15 most frequent tags
+top_tags = media_has_tags["tag"].value_counts().head(15).index.tolist()
+
+# Merge media with tags and filter top tags
+media_tags = media.merge(media_has_tags, on="media_id", how="left")
+media_tags = media_tags[media_tags["tag"].isin(top_tags)]
+
+# Count tag occurrences per month
+media_tags["month"] = media_tags["date"].dt.to_period("M")
+heatmap_data = media_tags.groupby(["month", "tag"]).size().unstack(fill_value=0)
+heatmap_data.index = heatmap_data.index.astype(str)
+
+# Plot
+fig, ax = plt.subplots(figsize=(16, 8))
+sns.heatmap(heatmap_data.T, cmap="YlOrRd", linewidths=0.5, ax=ax)
+ax.set_title("Top 15 Tags over Time", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Tag")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+The heatmap shows clear event-driven spikes on top of stable background topics. `GenerativeAI` dominates every month, confirming its centrality in AI media coverage. LargeLanguageModel (and also Video) peaks sharply in January 2025, aligning with major releases and announcements (e.g., DeepSeek-R1 and OpenAI’s Sora coverage). In contrast, Finetuning, Audio, and Accountability stay fairly steady, indicating persistent themes rather than short-lived hype.
+
+
+**Top 5 Tags over Time**
+
+The following line chart tracks the monthly evolution of the 5 most frequent tags, allowing for a more precise comparison of their relative prominence over time.
+
+```{python}
+#| echo: true
+#| warning: false
+#| cache: true
+
+# Get top 5 most frequent tags overall
+top_5_tags = media_has_tags["tag"].value_counts().head(5).index.tolist()
+
+# Filter and count per month
+media_tags_top5 = media_tags[media_tags["tag"].isin(top_5_tags)]
+line_data = media_tags_top5.groupby(["month", "tag"]).size().unstack(fill_value=0)
+line_data.index = line_data.index.astype(str)
+
+# Plot
+fig, ax = plt.subplots(figsize=(14, 6))
+for tag in top_5_tags:
+    ax.plot(line_data.index, line_data[tag], marker="o", label=tag)
+
+ax.set_title("Top 5 Tags over Time", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Number of Articles")
+ax.legend(title="Tag", bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+The heatmap shows clear event-driven spikes on top of stable background topics. `GenerativeAI` dominates every month, confirming its centrality in AI media coverage. `LargeLanguageModel` (and also `Video`) peaks sharply in January 2025, aligning with major releases and announcements (e.g., DeepSeek-R1 and OpenAI’s Sora coverage). In contrast, `Finetuning`, `Audio`, and `Accountability` stay fairly steady, indicating persistent themes rather than short-lived hype.
+
+
+We now extend the temporal analysis by adding sentiment signals over time.
+
+**Chunk sentiment distribution over time**
+
+This plot tracks how the monthly share of `negative`, `neutral`, and `positive` chunks evolves over the observation period.
+
+```{python}
+#| echo: true
+#| warning: false
+
+chunks_with_month = media_has_chunk.merge(
+    media_with_tag[["media_id", "month"]].drop_duplicates("media_id"),
+    on="media_id",
+    how="left"
+)
+
+dist = (
+    chunks_with_month
+    .dropna(subset=["month", "sentiment"])
+    .groupby(["month", "sentiment"])
+    .size()
+    .unstack(fill_value=0)
+    .reindex(columns=["negative", "neutral", "positive"], fill_value=0)
+    .sort_index()
+)
+
+dist_share = dist.div(dist.sum(axis=1), axis=0)
+x = dist_share.index.to_timestamp() if hasattr(dist_share.index, "to_timestamp") else dist_share.index
+
+# Colors: negative = orange, neutral = gray, positive = green
+colors = {
+    "negative": "orange",
+    "neutral": "gray",
+    "positive": "green",
+}
+
+fig, ax = plt.subplots(figsize=(14, 6))
+ax.stackplot(
+    x,
+    dist_share["negative"],
+    dist_share["neutral"],
+    dist_share["positive"],
+    labels=["negative", "neutral", "positive"],
+    colors=[colors["negative"], colors["neutral"], colors["positive"]],
+)
+
+ax.set_title("Chunk Sentiment Distribution over Time (Monthly Share)", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Share of Chunks")
+ax.legend(title="Sentiment", bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+`Neutral` content dominates throughout, while `positive` remains the second-largest share. `Negative` sentiment stays comparatively small, with only a slight uptick toward mid/late 2025.
+
+**Sentiment over time for the top 5 tags**
+
+This plot compares monthly mean sentiment for the five most frequent tags to highlight which topics are consistently viewed more positively.
+
+```{python}
+#| echo: true
+#| warning: false
+
+# Add month to media_with_tag (use timestamp for proper time axis)
+media_with_tag["month"] = pd.to_datetime(media_with_tag["date"]).dt.to_period("M").dt.to_timestamp()
+
+# Get top 5 tags from the same table used for plotting (robust against mismatches)
+top_5_tags = media_with_tag["tag"].value_counts().head(5).index.tolist()
+
+# Filter and compute mean sentiment per tag per month
+sentiment_over_time = (
+    media_with_tag[media_with_tag["tag"].isin(top_5_tags)]
+    .groupby(["month", "tag"])["sentiment"]
+    .mean()
+    .unstack()
+    .sort_index()
+)
+
+# Plot
+fig, ax = plt.subplots(figsize=(14, 6))
+for tag in top_5_tags:
+    if tag in sentiment_over_time.columns:
+        ax.plot(sentiment_over_time.index, sentiment_over_time[tag], marker="o", label=tag)
+
+ax.set_title("Sentiment over Time – Top 5 Tags", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Mean Sentiment Score")
+ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+ax.legend(title="Tag", bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+All top tags remain net-positive overall, but several show a gradual decline after early 2025. `Personalisation` stands out as the most consistently positive series across months.
+
+**DeepSeek vs. ChatGPT, Claude, Gemini, and CoPilot**
+
+This plot benchmarks DeepSeek’s monthly mean sentiment against major LLM competitors to contextualize its sentiment trajectory.
+
+```{python}
+#| echo: true
+#| warning: false
+
+compare_tags = ["DeepSeek", "ChatGPT", "Claude", "Gemini", "CoPilot"]
+
+sentiment_over_time = (
+    media_with_tag[media_with_tag["tag"].isin(compare_tags)]
+    .groupby(["month", "tag"])["sentiment"]
+    .mean()
+    .unstack()
+    .sort_index()
+)
+
+x = sentiment_over_time.index.to_timestamp() if hasattr(sentiment_over_time.index, "to_timestamp") else sentiment_over_time.index
+
+fig, ax = plt.subplots(figsize=(14, 6))
+for tag in compare_tags:
+    ax.plot(x, sentiment_over_time[tag], marker="o", label=tag)
+
+ax.set_title("Sentiment-Entwicklung über Zeit: DeepSeek vs. ChatGPT/Claude/Gemini/CoPilot", fontsize=14)
+ax.set_xlabel("Month")
+ax.set_ylabel("Mean Sentiment Score")
+ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+ax.legend(title="Tag", bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+plt.show()
+```
+
+`DeepSeek` shows a sharp positive spike around late 2024 followed by normalization into the mid range. `ChatGPT` trends downward toward 2025, while `CoPilot` and `Gemini` are generally higher and more stable than the rest.
+
+
+## Topics Modelling
+
+```{python}
+#| echo: true
+#| warning: false
+
+import pandas as pd
+import os
+
+# Load cleaned data
+media = pd.read_csv("data/processed/media_cleaned.csv")
+media_has_chunk = pd.read_csv("data/processed/media_has_chunk_cleaned.csv")
+media_has_tags = pd.read_csv("data/processed/media_has_tags_cleaned.csv")
+
+# Parse date
+media["date"] = pd.to_datetime(media["date"])
+media["month"] = media["date"].dt.to_period("M")
+
+# Ensure figures directory exists
+os.makedirs("notebook/figures", exist_ok=True)
+
+print(f"Articles: {len(media)}")
+print(f"Chunks: {len(media_has_chunk)}")
+print(f"Tags: {len(media_has_tags)}")
+```
+
+We use the `all-MiniLM-L6-v2` model from the `sentence-transformers` library to generate dense vector representations (embeddings) of the article content. This model is a compact version of BERT that provides efficient and meaningful sentence embeddings, making it suitable for large-scale text analysis.
+
+```{python}
+#| echo: true
+#| warning: false
+#| eval: false
+
+from sentence_transformers import SentenceTransformer
+import numpy as np
+
+# Pre-calculate embeddings (only once) — run manually, takes ~10-25 min on CPU
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+embeddings = embedding_model.encode(
+    media["full_content"].tolist(),
+    show_progress_bar=True
+)
+
+# Save to disk
+np.save("data/processed/embeddings.npy", embeddings)
+print(f"Embeddings shape: {embeddings.shape}")
+```
+
+Now we have the **embeddings**, we can proceed to topic modeling using `BERTopic`, which combines `UMAP` for dimensionality reduction and `HDBSCAN` for clustering. This approach allows us to identify coherent topics within the news articles based on their semantic content.
+
+We follow the **BERTopic best practices** by configuring each component of the pipeline explicitly before training, allowing full control over the topic modeling process.
+
+**UMAP** reduces the 384-dimensional embeddings to 5 dimensions before clustering. We set `n_neighbors=15` as a balanced default between local and global structure, and `random_state=42` to ensure reproducible topic assignments across runs.
+
+**HDBSCAN** clusters the reduced embeddings into topics. `min_cluster_size=30` requires at least 30 articles per topic, which avoids overly granular topics given our dataset size of 16k articles. This is the key parameter to tune if the number of topics is too high or too low.
+
+**CountVectorizer** determines the representative words per topic. We enable bigrams (`ngram_range=(1, 2)`) to capture meaningful two-word expressions such as "generative ai" or "language model", and set `min_df=2` to filter out rare terms that would not generalize across articles.
+
+```{python}
+#| echo: true
+#| warning: false
+#| eval: false
+
+from umap import UMAP
+from hdbscan import HDBSCAN
+from sklearn.feature_extraction.text import CountVectorizer
+from bertopic import BERTopic
+import numpy as np
+import copy
+
+# Load pre-calculated embeddings
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+embeddings = np.load("data/processed/embeddings.npy")
+
+# UMAP - dimensionality reduction
+umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric='cosine', random_state=42)
+
+# HDBSCAN - clustering
+hdbscan_model = HDBSCAN(min_cluster_size=30, metric='euclidean', cluster_selection_method='eom', prediction_data=True)
+
+# CountVectorizer - topic representation
+vectorizer_model = CountVectorizer(stop_words="english", min_df=2, ngram_range=(1, 2))
+
+# BERTopic
+topic_model = BERTopic(
+    embedding_model=embedding_model,
+    umap_model=umap_model,
+    hdbscan_model=hdbscan_model,
+    vectorizer_model=vectorizer_model,
+    top_n_words=10,
+    verbose=True
+)
+
+topics, probs = topic_model.fit_transform(media["full_content"].tolist(), embeddings)
+print(f"Number of topics: {len(set(topics))}")
+
+# Reduce to 20 main topics
+topic_model_reduced = topic_model.reduce_topics(
+    media["full_content"].tolist(),
+    nr_topics=21
+)
+
+# Save model
+topic_model_reduced.save("data/processed/bertopic_model")
+print("Model saved.")
+```
+
+```{python}
+#| eval: false
+from umap import UMAP
+from hdbscan import HDBSCAN
+from sklearn.feature_extraction.text import CountVectorizer
+from bertopic import BERTopic
+import numpy as np
+import copy
+topic_model_reduced = BERTopic.load("data/processed/bertopic_model")
+```
+
+With 72 initial topics, the model produces more granular results than needed for interpretation. BERTopic allows merging similar topics without retraining, enabling us to consolidate the topic structure while retaining the original embeddings and semantic relationships. We reduce the number of topics to 21 (20 main topics + 1 for outliers).
+
+```{python}
+#| echo: true
+#| warning: false
+#| eval: false
+
+# Save figures for all BERTopic visualizations — run manually once
+import kaleido  # pip install kaleido
+
+topic_labels = {
+    -1: "Outliers / Misc.",
+    0:  "AI News & Tech (General)",
+    1:  "Search, SEO & Marketing",
+    2:  "Energy, Power & Robotics",
+    3:  "ML Models & Training Data",
+    4:  "Stocks & Market Ratings",
+    5:  "US Politics & China Relations",
+    6:  "Quantum Computing",
+    7:  "AI in Media & Content",
+    8:  "AI in Education (Students/Learning)",
+    9:  "Consumer Tech (Apple/5G/Devices)",
+    10: "Defense & War (Ukraine/Russia)",
+    11: "Arts & Exhibitions (Museums/Film)",
+    12: "Gaming & Players",
+    13: "Earnings & Quarterly Reports",
+    14: "Facial Recognition & Surveillance",
+    15: "UK Government & Public Services (NHS)",
+    16: "Weather, Climate & Solar",
+    17: "KPMG / Corporate Communications",
+    18: "Agent Protocols (MCP/A2A/Servers)",
+    19: "Biodiversity & Wildlife Conservation",
+}
+
+topic_model_reduced.set_topic_labels(topic_labels)
+
+# Barchart
+fig_bar = topic_model_reduced.visualize_barchart(top_n_topics=21, custom_labels=True)
+fig_bar.write_image("notebook/figures/topic_barchart.png", scale=2)
+
+# Topic similarity map
+fig_topics = topic_model_reduced.visualize_topics()
+fig_topics.write_image("notebook/figures/topic_similarity.png", scale=2)
+
+# Frequency bar chart
+import matplotlib.pyplot as plt
+topic_info = topic_model_reduced.get_topic_info().copy()
+topic_info = topic_info[topic_info["Topic"] != -1].copy()
+topic_info["Label"] = topic_info["Topic"].map(topic_labels)
+topic_info = topic_info.sort_values("Count", ascending=True)
+
+fig, ax = plt.subplots(figsize=(10, 8))
+ax.barh(topic_info["Label"], topic_info["Count"])
+ax.set_title("Topic Frequencies (Reduced Model)")
+ax.set_xlabel("Number of Articles")
+ax.set_ylabel("")
+plt.tight_layout()
+fig.savefig("notebook/figures/topic_frequencies.png", dpi=150, bbox_inches="tight")
+plt.show()
+
+# Topics over time
+timestamps = media["date"].tolist()
+topics_over_time = topic_model_reduced.topics_over_time(
+    media["full_content"].tolist(),
+    timestamps,
+    nr_bins=12
+)
+
+import pickle
+with open("data/processed/topics_over_time.pkl", "wb") as f:
+    pickle.dump(topics_over_time, f)
+
+top_topics = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+tot_filtered = topics_over_time[topics_over_time["Topic"].isin(top_topics)]
+tot_pivot = tot_filtered.pivot(index="Timestamp", columns="Topic", values="Frequency")
+tot_pivot.columns = [topic_labels[t] for t in tot_pivot.columns]
+
+fig2, ax2 = plt.subplots(figsize=(14, 6))
+for col in tot_pivot.columns:
+    ax2.plot(tot_pivot.index, tot_pivot[col], marker="o", markersize=3, label=col)
+
+ax2.set_title("Topics over Time", fontsize=14)
+ax2.set_xlabel("Month")
+ax2.set_ylabel("Frequency")
+ax2.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
+plt.xticks(rotation=45, ha="right")
+plt.tight_layout()
+fig2.savefig("notebook/figures/topics_over_time.png", dpi=150, bbox_inches="tight")
+plt.show()
+
+print("All figures saved.")
+```
+
+The 20 main topics identified by the model can be labeled based on their most representative words and the underlying themes they capture. This labeling process is subjective and relies on interpreting the top words and the articles associated with each topic.
+
+```{python}
+#| echo: false
+#| warning: false
+
+from IPython.display import Image
+Image("notebook/figures/topic_barchart.png")
+```
+
+```{python}
+#| echo: false
+#| warning: false
+
+from IPython.display import Image
+Image("notebook/figures/topic_similarity.png")
+```
+
+Now that we have a good understanding of the main topics, we can look at their frequencies and how they relate to each other.
+
+```{python}
+#| echo: false
+#| warning: false
+
+from IPython.display import Image
+Image("notebook/figures/topic_frequencies.png")
+```
+
+Loading the topics over time data and visualizing the temporal evolution of the main topics.
+
+```{python}
+#| echo: false
+#| warning: false
+
+from IPython.display import Image
+Image("notebook/figures/topics_over_time.png")
+```
+
+Using BERTopic with pre-calculated sentence embeddings, UMAP dimensionality reduction, and HDBSCAN clustering, we identified 72 initial topics which were subsequently reduced to 20 coherent themes. These span technical domains such as ML Models & Training Data, Quantum Computing, and Agent Protocols, applied areas like Healthcare, Autonomous Vehicles, and Cybersecurity, and broader societal themes including AI Regulation, Stocks & Market Ratings, and US Politics & China Relations.
+
+The topics over time confirm that AI News & Tech (General) dominates throughout the dataset period, with a notable spike in Search, SEO & Marketing in January 2025.
+
 
 ## Entities and Relationship Extraction
 
@@ -660,14 +2076,21 @@ let's have a look at the main entities present in the articles.
 ### Entities Distribution
 
 ```{python}
-#| label: "load-nlp-model"
+#| eval: false
+import spacy
+import numpy as np
+from typing import List
+import time
+import re
+from collections import Counter
+import pprint
 nlp = spacy.load("en_core_web_trf")
 ```
 
 Using `spaCy` built-in entity recognizer, we can get an generally overview that the main entities that the articles contains, as well as potential relationships.
 
 ```{python}
-#| label: "spacy-entities-list"
+#| eval: false
 # Source - https://stackoverflow.com/a/70188495
 # Posted by aab
 # Retrieved 2026-02-26, License - CC BY-SA 4.0
@@ -689,7 +2112,7 @@ Overall, we retain 3 major entities: persons, organizations, products and countr
 The rests can be considered as informations suplementing those entities and their relationships, mainly money, such as how much a model costed, or date, as when the model was published.
 
 ```{python}
-#| label: "most-common-entities"
+#| eval: false
 list_articles_content = media.full_content.values
 np.random.seed(25)
 sample_articles = np.random.choice(list_articles_content, size=30)
@@ -702,27 +2125,20 @@ for ent, count in Counter(ent_list).most_common(20):
 ```
 
 ```{python}
-#| label: "most-common-entities-with-text"
+#| eval: false
 mapping = {token.text: token.ent_type_ for token in docs[:10] if token.ent_type_ != ""}
 pprint.pp(mapping)
 ```
 
 Combining those entities with the articles data that we have: publisher and date of publications and tags, we can effectively map trends and AI research developement.
 
-### Extraction Pipeline
-
-`LangExtract` is a powerful open-source library that enables efficient and performant entity and relatioships extraction.
-It uses LLM begin the scene, constructing and formatted and precise response.
-Ensuring easy reproducibility of the pipeline, we'll use an open-source model.
-
-
-Moreover, we'll give as input the whole articles, instead of its chunks.
-This will enable the model to have an optimal understand of the context, hopefully increasing the extraction quality.
-Moreover, as the extraction also provided the actual location of the entities, we'll be able to match those entities to there corresponding chunks, ensuring compatilbity for the future RAG implement and pipeline.
-
 ```{python}
 #| code-fold: true
-#| label: "langextract-prompt-and-examples"
+#| eval: false
+
+import langextract as lx
+import textwrap
+
 # 1. Define the prompt and extraction rules
 prompt = textwrap.dedent("""\
     	Extract entities such as organizations name, products such as AI models, persons and countries or locations.
@@ -832,18 +2248,14 @@ examples = [
 ]
 ```
 
-For a easily evaluable test case, we'll use a small article using a lightweight open-source model `gemma3:4b`.
+For a easily evaluable test case, let's take a small article using a lightweight open-source model.
 On the first try, the model detected entities and relationships mostly successfully, with a few detected entities bringing few information.
 Examples are isolated "financial_amount" extraction, that can be bound to no other entities.
 
 That said, isolated extracted entities could be removed and not taken into account when constructing the graph.
-Morevoer, inference time is consequent. As such, running the whole dataset using this model is unfeasible.
-As a matter of fact, even running the extraction on the whole daset using the smaller model is unfeasible, as extraction lasts around 1 minutes for each articles.
-As such, we'll only be able to extract entities from a sample of the articles.
 
 ```{python}
 #| eval: false
-#| label: "entities-extraction"
 media["content_length"] = media.full_content.str.len()
 sample = media.sort_values(by="content_length", ascending=True).reset_index().iloc[5]
 # The input text to be processed
