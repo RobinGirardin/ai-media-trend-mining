@@ -942,7 +942,7 @@ def tokenize_doc(doc):
 
 texts = media["full_content"].fillna("").tolist()
 
-docs = nlp.pipe(texts, batch_size=1000, n_process=4)
+docs = nlp.pipe(texts, batch_size=1000, n_process=1)
 
 media["tokens"] = [tokenize_doc(d) for d in docs]
 
@@ -955,7 +955,7 @@ print("Example MEDIA tokens:", media["tokens"].iloc[0][:20])
 
 texts = media_has_chunk["chunked_content"].fillna("").tolist()
 
-docs = nlp.pipe(texts, batch_size=2000, n_process=4)
+docs = nlp.pipe(texts, batch_size=2000, n_process=1)
 
 media_has_chunk["tokens"] = [tokenize_doc(d) for d in docs]
 
@@ -1041,8 +1041,8 @@ media_has_chunk["lemmas"] = media_has_chunk["tokens_no_stop"].apply(
 )
 
 
-media.to_parquet("sandbox/media_tls.parquet", index=False)
-media_has_chunk.to_parquet("sandbox/media_has_chunk_tls.parquet", index=False)
+# media.to_parquet("sandbox/media_tls.parquet", index=False)
+# media_has_chunk.to_parquet("sandbox/media_has_chunk_tls.parquet", index=False)
 
 print("Example lemmatization:", media["lemmas"].iloc[0][:20])
 
