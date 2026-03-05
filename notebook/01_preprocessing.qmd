@@ -892,8 +892,7 @@ We use spaCy’s lightweight blank("en") tokenizer to generate linguistically co
 
 ```{python}
 #| label: tokenization
-#| eval: false
-# tokenizations was done in Py as we were able to use 8 parallel processing while quarto uses only 1.
+#| eval: true
 
 import pandas as pd
 import spacy
@@ -904,37 +903,63 @@ import spacy
 
 #media = pd.read_parquet("data/processed/media_clean.parquet")
 
+import spacy
+# Initialize lightweight English tokenizer
 nlp = spacy.blank("en")
 
+# Contraction remnants that may appear if apostrophes were stripped earlier
+CONTRACTION_REMNANTS = {"s", "t", "ve", "re", "ll", "d", "m"}
+
+# Important short tokens we want to keep
+KEEP_SHORT = {"ai", "ml", "us", "uk", "eu"}
+
 def tokenize_doc(doc):
-    return [t.text.lower() for t in doc if t.is_alpha]
+    tokens = []
+    
+    for tok in doc:
+        # Keep only alphabetic tokens
+        if not tok.is_alpha:
+            continue
+        
+        t = tok.text.lower()
+        
+        # Remove contraction leftovers
+        if t in CONTRACTION_REMNANTS:
+            continue
+        
+        # Remove very short tokens unless they are important acronyms
+        if len(t) <= 2 and t not in KEEP_SHORT:
+            continue
+        
+        tokens.append(t)
+    
+    return tokens
+
+
+# =========================
+# TOKENIZING MEDIA
+# =========================
 
 texts = media["full_content"].fillna("").tolist()
 
-docs = nlp.pipe(texts, batch_size=1000, n_process=4)
+docs = nlp.pipe(texts, batch_size=1000, n_process=1)
+
 media["tokens"] = [tokenize_doc(d) for d in docs]
 
-#media.to_parquet("data/processed/media_tls.parquet", index=False)
-
-print("Example tokens:", media["tokens"].iloc[0][:20])
+print("Example MEDIA tokens:", media["tokens"].iloc[0][:20])
 
 
-
+# =========================
 # TOKENIZING CHUNKS
-
-
-#media_has_chunk = pd.read_parquet("data/processed/media_has_chunk_clean.parquet")
-
-nlp = spacy.blank("en")  # reinitialize is fine
+# =========================
 
 texts = media_has_chunk["chunked_content"].fillna("").tolist()
 
-docs = nlp.pipe(texts, batch_size=2000, n_process=4)
+docs = nlp.pipe(texts, batch_size=2000, n_process=1)
+
 media_has_chunk["tokens"] = [tokenize_doc(d) for d in docs]
 
-#media_has_chunk.to_parquet("data/processed/media_has_chunk_tls.parquet", index=False)
-
-print("Example tokens:", media_has_chunk["tokens"].iloc[0][:20])
+print("Example CHUNK tokens:", media_has_chunk["tokens"].iloc[0][:20])
 ```
 
 
@@ -947,7 +972,7 @@ To reduce noise and improve signal quality, we remove stopwords using spaCy’s 
 
 ```{python}
 #| label: stopword
-#| eval: false
+#| eval: true
 
 
 # media = pd.read_parquet("data/processed/media_tls.parquet")
@@ -989,11 +1014,11 @@ We apply the WordNet lemmatizer from NLTK to the stopword-filtered tokens. This 
 
 ```{python}
 #| label: lemmatization
-#| eval: false
+#| eval: true
 
 import nltk
-nltk.download("wordnet")
-nltk.download("omw-1.4")
+# nltk.download("wordnet")
+# nltk.download("omw-1.4")
 from nltk.stem import WordNetLemmatizer
 
 # Load existing file
@@ -1016,8 +1041,8 @@ media_has_chunk["lemmas"] = media_has_chunk["tokens_no_stop"].apply(
 )
 
 
-# media.to_parquet("data/processed/media_tls.parquet", index=False)
-# media_has_chunk.to_parquet("data/processed/media_has_chunk_tls.parquet", index=False)
+# media.to_parquet("sandbox/media_tls.parquet", index=False)
+# media_has_chunk.to_parquet("sandbox/media_has_chunk_tls.parquet", index=False)
 
 print("Example lemmatization:", media["lemmas"].iloc[0][:20])
 
@@ -1026,9 +1051,249 @@ print("Example lemmatization:", media["lemmas"].iloc[0][:20])
 
 ## Exploratory Analysis
 
-::: callout-warning
-This section needs to be implemented
+
+Before proceeding to advanced NLP techniques such as sentiment analysis, entity extraction, or knowledge graph construction, it is essential to understand the structural and linguistic characteristics of the corpus.
+
+Exploratory Data Analysis (EDA) in NLP serves several purposes:
+
+- Assessing corpus scale and distribution
+- Evaluating document and chunk length suitability for modeling and RAG
+- Understanding vocabulary richness and lexical diversity
+- Detecting potential bias across domains
+- Identifying dominant topics through tags
+- Observing temporal publication dynamics
+
+This step ensures that downstream modeling decisions (tokenization, chunking strategy, embedding size, filtering thresholds) are grounded in empirical evidence rather than assumptions.
+
+### Corpus Overview
+
+::: columns
+::: {.column width="35%"}
+**Corpus Lenght Metrics**
+    
+
+```{python}
+#| label: Structural_overview
+
+
+print("Number of articles:", len(media))
+print("Number of chunks:", len(media_has_chunk))
+print("Number of tags:", len(media_has_tags))
+print("Unique domains:", media["domain"].nunique())
+
+```
+
+
+```{python}
+#| label: doc_lenght_distribution
+
+media["doc_length"] = media["full_content"].str.split().str.len()
+
+media["doc_length"].describe().round(0).astype(int)
+```
+
 :::
+
+::: {.column width="65%"}
+**Histogram of Article Word Counts**
+
+```{python}
+#| label: Doc_lenghtdistro_plot
+
+
+mean_len = media["doc_length"].mean()
+median_len = media["doc_length"].median()
+
+plt.figure(figsize=(6,4))
+plt.hist(media["doc_length"], bins=50)
+plt.axvline(mean_len, linestyle='--', label=f"Mean ({mean_len:.0f})")
+plt.axvline(median_len, linestyle='-', label=f"Median ({median_len:.0f})")
+#plt.title("Document Length Distribution")
+plt.xlabel("Number of Words")
+plt.ylabel("Frequency")
+plt.legend()
+plt.show()
+```
+
+:::
+:::
+
+
+The distribution is right-skewed, as shown in the histogram. Most articles fall between 900–1600 words, which is typical for technology journalism and analytical reporting.
+
+The long tail (up to ~9,300 words) likely represents:
+
+- In-depth investigative pieces
+- possible Policy papers
+- and Long-form analysis
+
+The relatively small gap between mean and median suggests the skew is present but not extreme.
+
+### Paragraph-Level Analysis
+
+Chunks are critical for downstream NLP tasks such as Retrieval-Augmented Generation (RAG), embedding-based semantic search, and Knowledge Graph (KG) construction. While document-level analysis informs us about the overall corpus structure, chunk-level analysis determines whether the segmentation strategy is appropriate for modeling.
+
+In this dataset, chunks correspond to individual paragraphs extracted from each article.
+
+::: columns
+::: {.column width="35%"}
+
+```{python}
+
+media_has_chunk["chunk_length"] = media_has_chunk["chunked_content"].str.split().str.len()
+
+media_has_chunk["chunk_length"].describe().round(0).astype(int)
+
+```
+
+:::
+::: {.column width="65%"}
+
+```{python}
+
+mean_len = media["doc_length"].mean()
+median_len = media["doc_length"].median()
+
+plt.figure(figsize=(6,4))
+
+plt.hist(media["doc_length"].clip(upper=4000), bins=60)
+
+plt.axvline(mean_len, linestyle='--', label=f"Mean ({mean_len:.0f})")
+plt.axvline(median_len, linestyle='-', label=f"Median ({median_len:.0f})")
+
+plt.title("Document Length Distribution (Clipped at 4000 Words)")
+plt.xlabel("Number of Words")
+plt.ylabel("Frequency")
+plt.legend()
+plt.show()
+```
+
+:::
+:::
+
+With a median of 43 words, chunks are relatively small. This suggests that while fine-grained retrieval is possible, semantic richness per chunk may be limited. For RAG applications, it may be beneficial to re-chunk paragraphs into larger segments (e.g., 200–400 words) to increase contextual density.
+
+### Vocabulary Exploration
+
+Top Words (After Stopword Removal)
+
+Vocabulary exploration helps us understand the lexical composition of the corpus. By examining word frequencies, vocabulary size, and lexical diversity after stopword removal, we can identify the dominant terms and assess how varied the language is across the AI media articles.
+
+```{python}
+#| label: top_words
+
+
+from collections import Counter
+
+all_tokens = media["tokens_no_stop"].explode()
+
+word_counts = Counter(all_tokens)
+
+word_counts.most_common(20)
+```
+
+
+
+```{python}
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+
+# Generate word cloud from frequency dictionary
+wordcloud = WordCloud(
+    width=1200,
+    height=600,
+    background_color="white",
+    colormap="viridis"
+).generate_from_frequencies(word_counts)
+
+# Plot
+plt.figure(figsize=(10,5))
+plt.imshow(wordcloud, interpolation="bilinear")
+plt.axis("off")
+plt.title("Word Cloud of Most Frequent Terms in AI Media Corpus")
+plt.show()
+```
+
+
+The word cloud confirms that the corpus is dominated by AI-related terminology such as “AI”, “model”, “data”, and “technology”, reflecting the dataset’s focus on developments in artificial intelligence.
+
+::: {.callout-note collapse="true"}
+During vocabulary inspection, isolated tokens such as “s” and “t” were observed. These originate from contraction splitting (e.g., “it’s”, “don’t”) during tokenization. We went back to tokenization and an additional filtering based on token length was applied to remove such artifacts and improve vocabulary quality.
+:::
+
+
+**Vocabulary size**
+
+```{python}
+
+
+vocab_size = len(word_counts)
+print("Vocabulary size:", vocab_size)
+
+```
+
+The vocabulary analysis after stopword removal reveals a vocabulary size of 144,873 unique tokens across the corpus. This indicates a very large and diverse lexical space, which is expected given the dataset consists of thousands of news articles discussing different aspects of artificial intelligence, technology, policy, and industry developments.
+
+**Lexical Diversity**
+```{python}
+
+
+total_tokens = len(all_tokens)
+unique_tokens = len(set(all_tokens))
+
+lexical_diversity = unique_tokens / total_tokens
+
+print("Lexical diversity:", round(lexical_diversity, 4))
+
+```
+The lexical diversity score of 0.0109 represents the ratio between unique tokens and the total number of tokens in the corpus. In large text collections such as news corpora, lexical diversity values tend to be relatively low because many important domain terms (e.g., AI, model, data, technology, research) appear repeatedly across articles. This repetition reflects the shared terminology used when discussing developments in artificial intelligence.
+
+Overall, the results indicate that the corpus contains both substantial vocabulary richness and strong thematic consistency. A large vocabulary size suggests that the dataset captures a wide range of topics and entities related to AI, while the relatively low lexical diversity is typical of large journalistic corpora where specialized terminology is frequently reused.
+
+### Articles per Domain
+
+```{python}
+#| label: articles
+
+top_domains = media["domain"].value_counts().head(20)
+print(top_domains)
+
+```
+
+
+```{python}
+#| label: plot_articles
+
+top_domains.plot(kind="bar", figsize=(12,5))
+
+```
+
+The domain distribution reveals that a small number of media outlets contribute a large portion of the articles. This indicates a certain level of source concentration, which may introduce editorial bias or thematic emphasis depending on the publishing outlets represented in the dataset.
+
+Understanding this distribution is important when interpreting trends derived from the corpus.
+
+### Tag Distribution
+
+The tag distribution highlights the main topics covered in the dataset. GenerativeAI appears most frequently, followed by tags such as Video, LargeLanguageModel, and Personalisation, indicating a strong focus on generative technologies and large language models. Other tags like OpenAI, ChatGPT, and Robotics show that the corpus also captures developments in specific AI systems and applications.
+
+```{python}
+#| label: tag_distribution
+#| warning: false
+#
+top_tags = media_has_tags["tag"].value_counts().head(20)
+
+plt.figure(figsize=(12,5))
+top_tags.plot(kind="bar")
+
+plt.title("Top Tags in AI Media Dataset")
+plt.xlabel("Tag")
+plt.ylabel("Number of Articles")
+plt.xticks(rotation=45)
+plt.show()
+```
+
+
+
 
 
 
@@ -1061,6 +1326,7 @@ Insert here a average token length per discussion if not already.
 #| label: "load_model"
 #| message: false
 #| warning: false
+#| eval: false
 model_path = "cardiffnlp/twitter-roberta-base-sentiment-latest"
 sentiment_task = pipeline("sentiment-analysis", model=model_path, tokenizer=model_path)
 ```
@@ -1070,6 +1336,7 @@ Taking a few examples to roughly test the model performance, we can see his succ
 ```{python}
 #| echo: false
 #| label: "sent-perf-overview"
+#| eval: false
 articles_samples = media_has_chunk["chunked_content"].sample(n=20, random_state=25)
 
 results = sentiment_task(articles_samples.values.tolist())
@@ -1101,6 +1368,7 @@ pd.DataFrame({"sample_size": sample_size, "runtime": runtime}).to_csv("notebook/
 
 ```{python}
 #| label: "sent-pipe-runtime-estimation"
+#| eval: false
 
 runtimes = pd.read_csv("notebook/runtimes.csv")
 
@@ -1166,6 +1434,7 @@ For this, 'negative' sentiment will have the value '-1', 'neutral' sentiment wil
 
 ```{python}
 #| label: "media-with-sentiment"
+
 def convert_to_numerical(sentiment: str) -> int:
 	match sentiment:
 		case "positive":
@@ -1186,6 +1455,7 @@ Good, now we have a good setup to finally do some analyzis.
 
 ```{python}
 #| label: "media-with-tag"
+
 media_with_tag = media.merge(media_has_tags, on="media_id", how="left")
 ```
 
@@ -1204,6 +1474,7 @@ Indeed, performance promises and investements are seen positively by the model.
 
 ```{python}
 #| label: "sentiment-kde"
+
 media_with_tag.sentiment.plot(kind="kde")
 
 plt.tight_layout()
@@ -1227,6 +1498,7 @@ However, it is important that, since the distribution isn't normally distributed
 
 ```{python}
 #| label: "sentiment-per-tag"
+
 # Compute the less biased metric 
 sentiment_per_tag = (
     media_with_tag
