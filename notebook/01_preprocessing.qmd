@@ -33,11 +33,21 @@ However, cleaning and exploration is necessary before any analysis. As such, thi
 ```{python}
 #| label: imports
 #| echo: false
+import spacy
+import numpy as np
+from typing import List
+import time
+import re
+from collections import Counter
+import pprint
 import sys
 import pandas as pd
 import os
-
+import time
 from src.lib import parse_string_into_list
+import langextract as lx
+import textwrap
+import seaborn as sns
 
 from bs4 import BeautifulSoup
 import html
@@ -648,19 +658,14 @@ let's have a look at the main entities present in the articles.
 ### Entities Distribution
 
 ```{python}
-import spacy
-import numpy as np
-from typing import List
-import time
-import re
-from collections import Counter
-import pprint
+#| label: "load-nlp-model"
 nlp = spacy.load("en_core_web_trf")
 ```
 
 Using `spaCy` built-in entity recognizer, we can get an generally overview that the main entities that the articles contains, as well as potential relationships.
 
 ```{python}
+#| label: "spacy-entities-list"
 # Source - https://stackoverflow.com/a/70188495
 # Posted by aab
 # Retrieved 2026-02-26, License - CC BY-SA 4.0
@@ -682,6 +687,7 @@ Overall, we retain 3 major entities: persons, organizations, products and countr
 The rests can be considered as informations suplementing those entities and their relationships, mainly money, such as how much a model costed, or date, as when the model was published.
 
 ```{python}
+#| label: "most-common-entities"
 list_articles_content = media.full_content.values
 np.random.seed(25)
 sample_articles = np.random.choice(list_articles_content, size=30)
@@ -694,18 +700,27 @@ for ent, count in Counter(ent_list).most_common(20):
 ```
 
 ```{python}
+#| label: "most-common-entities-with-text"
 mapping = {token.text: token.ent_type_ for token in docs[:10] if token.ent_type_ != ""}
 pprint.pp(mapping)
 ```
 
 Combining those entities with the articles data that we have: publisher and date of publications and tags, we can effectively map trends and AI research developement.
 
+### Extraction Pipeline
+
+`LangExtract` is a powerful open-source library that enables efficient and performant entity and relatioships extraction.
+It uses LLM begin the scene, constructing and formatted and precise response.
+Ensuring easy reproducibility of the pipeline, we'll use an open-source model.
+
+
+Moreover, we'll give as input the whole articles, instead of its chunks.
+This will enable the model to have an optimal understand of the context, hopefully increasing the extraction quality.
+Moreover, as the extraction also provided the actual location of the entities, we'll be able to match those entities to there corresponding chunks, ensuring compatilbity for the future RAG implement and pipeline.
+
 ```{python}
 #| code-fold: true
-
-import langextract as lx
-import textwrap
-
+#| label: "langextract-prompt-and-examples"
 # 1. Define the prompt and extraction rules
 prompt = textwrap.dedent("""\
     	Extract entities such as organizations name, products such as AI models, persons and countries or locations.
@@ -815,13 +830,18 @@ examples = [
 ]
 ```
 
-For a easily evaluable test case, let's take a small article using a lightweight open-source model.
+For a easily evaluable test case, we'll use a small article using a lightweight open-source model `gemma3:4b`.
 On the first try, the model detected entities and relationships mostly successfully, with a few detected entities bringing few information.
 Examples are isolated "financial_amount" extraction, that can be bound to no other entities.
 
 That said, isolated extracted entities could be removed and not taken into account when constructing the graph.
+Morevoer, inference time is consequent. As such, running the whole dataset using this model is unfeasible.
+As a matter of fact, even running the extraction on the whole daset using the smaller model is unfeasible, as extraction lasts around 1 minutes for each articles.
+As such, we'll only be able to extract entities from a sample of the articles.
 
 ```{python}
+#| eval: false
+#| label: "entities-extraction"
 media["content_length"] = media.full_content.str.len()
 sample = media.sort_values(by="content_length", ascending=True).reset_index().iloc[5]
 # The input text to be processed
@@ -842,6 +862,8 @@ result = lx.extract(
 
 ```{python}
 #| eval: false
+#| echo: false
+#| label: "langextract-save-visualization"
 lx.io.save_annotated_documents([result], output_name="extraction_results.jsonl", output_dir=".")
 html_content = lx.visualize("notebook/extraction_results.jsonl")
 with open("notebook/visualization.html", "w") as f:
@@ -855,9 +877,225 @@ with open("notebook/visualization.html", "w") as f:
 
 ![](visualization.html){width="100%" height="600px"}
 
-Considering the relatively successfull entity and relationsip extraction, the next step would be to reflect on storage.
-The main purpose of this step is to extract meaningful news information from the article, enabling better tracking of trends and new information.
-In the next section, we'll explore how we can combine the raw article data with the extracted information throughout this report in a comprehensive knowledge graph.
+```{python}
+#| echo: false
+#| eval: false
+#| label: "langextract-runtime-evaluation"
+
+def extract(
+	documents: list[lx.data.Document],
+	prompt: str = prompt,
+	examples: str = examples,
+	model_name: str = "gemma3:4b"
+) -> list[lx.data.AnnotatedDocument] | lx.data.AnnotatedDocument:
+	result = lx.extract(
+		text_or_documents=documents,
+		prompt_description=prompt,
+		examples=examples,
+		model_id=model_name,
+		
+		# Parameters for extraction - ALWAYS USE BATCH API
+		extraction_passes=2,       # Multiple passes for better recall
+		max_char_buffer=2000,      # Moderate chunks (~124 chunks)
+		max_workers=1,             # Sequential (not used with batch)
+		batch_length=1000,         # Process all chunks in one batch job
+		show_progress=True,
+		resolver_params={
+		    "suppress_parse_errors": True,  # Skip chunks where LLM returns malformed JSON
+		}
+	)
+	return result
+```
+
+```{python}
+#| label: "extraction-pipeline"
+#| eval: false
+articles = media.loc[:, ["media_id", "full_content"]].sample(n=400)
+
+extracted_documents: List[dict] = []
+count = -1
+for i, (media_id, text) in articles.iterrows():
+	count += 1
+	print(f"Article {count} / 399")
+	try:
+		result = extract(text)
+		extracted_documents.append(
+			{
+				"media_id": media_id,
+				"extraction": result
+			}
+		)
+	except Exception as error:
+		print(f"Error: {error}")
+		continue
+
+with open("notebook/langextract_extraction_results.pkl", "wb") as fb:
+	pickle.dump(extracted_documents, fb)
+```
+
+```{python}
+#| label: "langchain-result-parsing"
+#| eval: false
+
+from src.lib import langextract_to_json
+
+json_annotations: List[dict] = []
+for doc in documents:
+	flattened_extraction = langextract_to_json(
+	    doc["media_id"], doc["extraction"]
+	)
+	json_annotations.extend(flattened_extraction)
+
+with open(
+	"data/processed/langchain_extractions_json.pkl", "wb"
+) as file:
+        pickle.dump(json_annotations, file)
+
+```
+
+```{python}
+#| label: "flattened-annotations-loading"
+
+with open("data/processed/langextract_extractions_json.pkl", "rb") as file:
+	extract = pickle.load(file)
+```
+
+Out of all the entities extracted, the most common entities extracted revolved around
+Google and related search team or product, such as Google DeepMind, Gemini Robotics or Intrinsic.
+Unsurprisingly, China and United States (or U.S.) also appear very often the 'AI-race' between the USA and China,
+is a term mentioned, at least in the Western part of the world.
+
+Interestingly, Russia is also a entity that appears often, although they seems relatively quiet in the AI space.
+
+```{python}
+#| label: most-common-entities 
+
+entities_counts = Counter([ex["entity"]["entity_text"] for ex in extract if "entity" in ex.keys()])
+n_unique_entities = len(entities_counts.keys())
+
+print("Total Amount of Unique Entities: ", n_unique_entities)
+print("Total Amount of Extracted Entities: ", entities_counts.total())
+print("Top 20 - Most Common Entities: ")
+for name, count in entities_counts.most_common(20):
+	print(f"   + {name}: {count}")
+```
+
+As the amount of diversed entities extracted is high, we expect the co-occurence matrix to be very sparse.
+Moreover, some entites are simply written in a different way, contributing to the sparsity effect, such as 'NVIDIA' and 'Nvidia Corp.'
+Additionnaly, as we could expect the distribution of entities across media is akin to a power-law distribution.
+
+```{python}
+#| label: extract-entities-distributions
+
+fig, ax = plt.subplots()
+pd.Series(entities_counts).sort_values(ascending=False).plot(kind="line", ax=ax)
+ax.tick_params("x", rotation=45)
+ax.set_title("Extracted Entities Distribution (N_articles=400)")
+ax.set_ylabel("Count")
+ax.set_xlabel("Entities")
+plt.show()
+```
+
+```{python}
+#| label: co-occurrence-matrix
+#| eval: false
+entities_per_media = defaultdict(list) 
+
+# Get a list of entities mentioned in each media for each media
+for ex in extract:
+	if "entity" in ex.keys():
+		entities_per_media[ex["media_id"]].append(ex["entity"]["entity_text"])
+
+media_id_list = list(entities_per_media.keys())
+coc_matrix = np.zeros((n_unique_entities, n_unique_entities)) # Empty co-occurrence matrix
+# Map each entities to their corresponding column/row index
+idx_mapping = {ent: idx for idx, ent in enumerate(entities_counts.keys())}
+
+for media_id in media_id_list:
+	entities_list = np.array(entities_per_media[media_id])
+	for ent in entities_list:
+		# Get all entities inside the list except the current `ent`
+		neighbors = entities_list[np.not_equal(entities_list, ent)]
+		# Increase the occurrence of `ent` with all neighbors
+		for neigh in neighbors:
+			coc_matrix[idx_mapping[ent], idx_mapping[neigh]] += 1
+
+coc_df = pd.DataFrame(coc_matrix, columns=idx_mapping.keys(), index=idx_mapping.keys())
+coc_df.to_csv("data/processed/co_occurrence_matrix.csv", index=False)
+coc_df.to_parquet("data/processed/co_occurrence_matrix.parquet", engine="fastparquet")
+```
+
+```{python}
+#| label: load-co-occurrence-matrix
+coc = pd.read_parquet("data/processed/co_occurrence_matrix.parquet", engine="fastparquet")
+```
+
+```{python}
+#| label: heatmap-co-occurrence-matrix
+#| eval: false
+sns.heatmap(coc)
+plt.show()
+plt.savefig("notebook/heatmap-co-occurrence-matrix.png")
+```
+
+As expected, sparsity is very high and it is hard to see which entity text is most often associated with.
+Enabling a better visualization of cluster, we'll reduce dimensionality by using a **t-Distribution Stochastic Neighbor Embedding** (TSNE) algorithm.
+Contrary to other dimensionality reductio techniques, this algorithm preserve global structure by increasing density around core clusters.
+As our co-occurrence matrix can be considered a 'similarity' matrix, we do not need any further preprocessing.
+As per the very peculiar distribution, we won't use a scaling step as to avoid messing with the relationships strength between entities.
+Further supporting this claim, a trial with scaling deliver much worse result in terms of clusters.
+
+![Co-Occurrence Matrix](notebook/heatmap-co-occurrence-matrix.png)
+
+```{python}
+#| eval: false
+#| label: tsne-dim-reduction
+
+from sklearn.manifold import TSNE
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import MinMaxScaler
+
+pipe = Pipeline(
+	steps=[
+	## ("scaler", MinMaxScaler()),
+	("tsne", TSNE())
+	]
+)
+coc_reddim = pipe.fit_transform(coc)
+coc_reddim_df = pd.DataFrame(
+	np.concat((coc_reddim, coc_df.columns.to_numpy()[:, np.newaxis]), axis=1),
+	columns=["x", "y", "entity_text"]
+)
+
+coc_reddim_df.to_csv("data/processed/reduced-co-occurrence-matrix.csv", index=False)
+```
+
+```{python}
+#| label: "load-coc-reddim"
+coc_reddim_df = pd.read_csv("data/processed/reduced-co-occurrence-matrix.csv")
+```
+
+Hovering over clusters of point, the user can them and the corresponding entities.
+Nevertheless, as per the entity distribution, we observe a a few large conglomerates of points at the center, with many small clusters, many of them consisting of 2 or 3 entities.
+
+As expected, major actors (company, entities or product) in the AI space such as AI Model, Artificial Intelligence, NVIDIA, ... flock together in a big area.
+
+However, within this area, smaller groups can be observed.
+For example, we can observe a group involving "data privacy", "GDPR", "AI Model" and "Generative AI".
+This presence of this group at the center of the bigger cluster shows that data privacy and governement isn't a small trend,
+it is very much a concerns for the public.
+
+Furthermore, we can observe entities such as "Trump Administration", "Biden" and countries such as "China" or "USA" close to other technical entities such as "Large Language Model".
+This further cement the fact that technological advancement if tighly tied with politics and countries agenda.
+Naturally, given the potential of modern AI technologies and their promises, it is expected that major powers are pulling strings.
+
+```{python}
+#| label: plotly-reduced-co-occurrence-matrix
+import plotly.express as px
+
+fig = px.scatter(coc_reddim_df, x="x", y="y", hover_data=["entity_text"])
+fig.show()
+```
 
 ## Knowledge Graph {#sec-kg}
 
