@@ -84,3 +84,37 @@ ai-media-trend-mining/
 ├── tests/                # Tests for reusable code
 ├── requirements.txt
 └── README.md
+
+## Neo4j - Graph Database
+
+For this project's graph database, we'll use Neo4j, a common industry solution when deploying graph database architecture.
+For this project, we'll use the free tier of Neo4j Aura, a managed cloud infrastructure.
+
+To connect and interact with the graph database instance, you'll need the following username and password.
+
+* Username: 88ad2b04
+* Password: sSGPYB5Zmtsnu0wNu0JoCmH2gjC2OTNOcoF2ffr7WHs
+* Connection URI: neo4j+s://88ad2b04.databases.neo4j.io
+* Connection URL: https://88ad2b04.databases.neo4j.io
+
+The simplest way to interact with the database, is trough the browser.
+Use the *Connection URL* in the browser, connect using the previously mentioned credentials and start querying.
+
+> [!NOTE]:
+> **Note** the difference between URL and URI connection string.
+To connect through the browser, use the URL connection string.
+For python, use the URI connection string.
+
+
+Alternatively, you can do this programmatically through `neo4j` python library and the **Connection URI** string.
+
+```python
+from neo4j import GraphDatabase
+
+# URI examples: "neo4j://localhost", "neo4j+s://xxx.databases.neo4j.io"
+URI = "<database-uri>"
+AUTH = ("<username>", "<password>")
+
+with GraphDatabase.driver(URI, auth=AUTH) as driver:
+    driver.verify_connectivity()
+```
