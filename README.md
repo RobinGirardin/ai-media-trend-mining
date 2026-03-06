@@ -102,10 +102,8 @@ To connect and interact with the graph database instance, you'll need the follow
 The simplest way to interact with the database, is trough the browser.
 Use the *Connection URL* in the browser, connect using the previously mentioned credentials and start querying.
 
-> [!NOTE]:
-> **Note** the difference between URL and URI connection string.
-To connect through the browser, use the URL connection string.
-For python, use the URI connection string.
+[!NOTE]:
+**Note** the difference between URL and URI connection string. To connect through the browser, use the URL connection string. For python, use the URI connection string.
 
 
 Alternatively, you can do this programmatically through `neo4j` python library and the **Connection URI** string.
