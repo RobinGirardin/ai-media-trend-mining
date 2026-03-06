@@ -85,6 +85,8 @@ ai-media-trend-mining/
 ├── requirements.txt
 └── README.md
 
+```
+
 ## Neo4j - Graph Database
 
 For this project's graph database, we'll use Neo4j, a common industry solution when deploying graph database architecture.
