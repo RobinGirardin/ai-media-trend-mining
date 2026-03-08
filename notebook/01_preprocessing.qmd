@@ -497,6 +497,7 @@ Let's verify that the boilerplate removal worked by checking the most common sen
 ```{python}
 #| echo: true
 #| warning: false
+#| eval: false
 
 # Again: Show most common sentences
 all_sentences = media_has_chunk["chunked_content"].apply(split_sentences).explode()
@@ -907,7 +908,7 @@ We use spaCy’s lightweight blank("en") tokenizer to generate linguistically co
 
 ```{python}
 #| label: tokenization
-#| eval: true
+#| eval: false
 
 import pandas as pd
 import spacy
@@ -990,12 +991,12 @@ To reduce noise and improve signal quality, we remove stopwords using spaCy’s 
 #| eval: true
 
 
-# media = pd.read_parquet("data/processed/media_tls.parquet")
-# media_has_chunk = pd.read_parquet("data/processed/media_has_chunk_tls.parquet")
+media = pd.read_parquet("data/processed/media_tls.parquet")
+media_has_chunk = pd.read_parquet("data/processed/media_has_chunk_tls.parquet")
 
 
 
-stop_words = nlp.Defaults.stop_words
+from spacy.lang.en.stop_words import STOP_WORDS as stop_words
 
 # Remove stopwords
 media["tokens_no_stop"] = media["tokens"].apply(
@@ -1029,7 +1030,7 @@ We apply the WordNet lemmatizer from NLTK to the stopword-filtered tokens. This 
 
 ```{python}
 #| label: lemmatization
-#| eval: true
+#| eval: false
 
 import nltk
 # nltk.download("wordnet")
@@ -2554,9 +2555,9 @@ The notebook uses the following input files:
 #| echo: false
 
 extractions_path = Path("data/processed/langextract_extractions_json.pkl")
-media_path = Path("sandbox/data/media_cleaned.csv")
-chunks_path = Path("sandbox/data/media_has_chunk_cleaned.csv")
-tags_path = Path("sandbox/data/media_has_tags_cleaned.csv")
+media_path = Path("data/processed/media_cleaned.csv")
+chunks_path = Path("data/processed/media_has_chunk_cleaned.csv")
+tags_path = Path("data/processed/media_has_tags_cleaned.csv")
 
 with open(extractions_path, "rb") as f:
     extractions = pickle.load(f)
@@ -2818,7 +2819,7 @@ for _, entity in entities_df.iterrows():
     raw_text = str(entity["entity_text"]).strip()
     clean_text = " ".join(raw_text.lower().split())
 
-    key = (clean_text, entity["type"])
+    key = clean_text
 
     entity_stats[key]["mention_count"] += 1
     entity_stats[key]["articles"].add(entity["media_id"])
@@ -2866,7 +2867,7 @@ Once entity nodes are created, each entity mention is linked to the correspondin
 for _, entity in entities_df.iterrows():
     raw_text = str(entity["entity_text"]).strip()
     clean_text = " ".join(raw_text.lower().split())
-    key = (clean_text, entity["type"])
+    key = clean_text
 
     entity_node = entity_key_map[key]
     article_node = f"article_{entity['media_id']}"
@@ -2899,11 +2900,11 @@ for _, rel in relationships_df.iterrows():
                 party2_clean = " ".join(str(party2_text).strip().lower().split())
 
                 party1_nodes = [
-                    nid for (text, _), nid in entity_key_map.items()
+                    nid for text, nid in entity_key_map.items()
                     if text == party1_clean
                 ]
                 party2_nodes = [
-                    nid for (text, _), nid in entity_key_map.items()
+                    nid for text, nid in entity_key_map.items()
                     if text == party2_clean
                 ]
 
@@ -3258,7 +3259,23 @@ if simple_graph.number_of_nodes() > 0:
 
 #### Centrality Analysis
 
-Centrality analysis is used to identify the most important nodes in a network based on their position and connections. In this knowledge graph, nodes represent entities extracted from AI-related media articles, while edges represent relationships between them. We use **degree centrality**, which measures how many connections a node has relative to the total number of nodes in the network. It is calculated as \( C_D(v) = \frac{deg(v)}{N-1} \), where \(deg(v)\) is the number of connections of node \(v\) and \(N\) is the total number of nodes. Entities with higher centrality scores are more strongly connected within the AI ecosystem.
+Centrality analysis is used to identify the most important nodes in a network based on their position and connections. In this knowledge graph, nodes represent entities extracted from AI-related media articles, while edges represent relationships between them.
+ 
+We use **degree centrality**, which measures how many connections a node has relative to the total number of nodes in the network.
+ 
+The degree centrality of a node \(v\) is defined as:
+ 
+$$
+C_D(v) = \frac{k_v}{N - 1}
+$$
+ 
+where:
+ 
+- $deg(v)$ is the number of connections (degree) of node $v$
+- $N$ is the total number of nodes in the network 
+
+Entities with higher centrality scores are more strongly connected within the AI ecosystem.
+
 
 ```{python}
 #| label: fig-kg-centrality-analysis
