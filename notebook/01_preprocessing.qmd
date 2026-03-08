@@ -1824,9 +1824,9 @@ import pandas as pd
 import os
 
 # Load cleaned data
-# media = pd.read_csv("data/processed/media_cleaned.csv")
-# media_has_chunk = pd.read_csv("data/processed/media_has_chunk_cleaned.csv")
-# media_has_tags = pd.read_csv("data/processed/media_has_tags_cleaned.csv")
+media = pd.read_csv("data/processed/media_cleaned.csv")
+media_has_chunk = pd.read_csv("data/processed/media_has_chunk_cleaned.csv")
+media_has_tags = pd.read_csv("data/processed/media_has_tags_cleaned.csv")
 
 # Parse date
 media["date"] = pd.to_datetime(media["date"])
