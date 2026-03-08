@@ -14,7 +14,7 @@ execute:
 
 In today’s fast-changing AI landscape, timely and accurate information is crucial. AI breakthroughs in generative models, robotics, natural language processing (NLP), and ethics are reshaping industries and society at large.
 
-This projects aims to advanced NLP techniques to:
+This project applies advanced NLP techniques to:
 
 -   study AI innovations and debates,
 -   track emerging trends over time,
@@ -134,6 +134,26 @@ The goal is to keep this schema evolving throughout the project and our analysis
     -   `tag`
 :::
 :::
+
+## Summary of Key Findings
+
+This notebook covers the full Stage 1 pipeline — from raw data ingestion to knowledge graph construction — over a corpus of 16,317 AI media articles published between September 2024 and August 2025.
+
+**Data & Preprocessing.** The raw dataset required structural normalization, encoding fixes (mojibake, hex remnants), and sentence boundary correction. After cleaning, the corpus was tokenized, lemmatized, and prepared for downstream analysis. Three structured tables were derived: `media`, `media_has_chunk` (436,312 chunks), and `media_has_tags` (84,328 tags).
+
+**Exploratory Analysis.** The corpus spans 62 unique domains and shows a right-skewed article length distribution (median ~1,100 words). `GenerativeAI`, `LargeLanguageModel`, and `Video` are the dominant tags throughout the period. January 2025 stands out as the peak month, driven by the DeepSeek-R1 release and the Stargate Project announcement.
+
+**Sentiment Analysis.** Overall sentiment is mildly positive across the corpus. Tags related to `HighPerformanceComputing` and `Personalisation` score highest, while `MilitaryAndDefense` and `Fairness` trend toward neutral. No major domain shows a systematic negative bias.
+
+**Temporal Analysis.** Article volume is stable at 1,100–1,700 per month, with a clear spike in January 2025, driven by the release of DeepSeek-R1 (January 20) and the Stargate Project announcement (January 21). `GenerativeAI` dominates every month; `LargeLanguageModel` peaks sharply in January 2025 before normalizing. A notable finding from the sentiment-over-time analysis is that `DeepSeek` showed a sharp positive sentiment spike around its release before normalizing, while `ChatGPT` trended gradually downward through 2025 — suggesting a shift in media enthusiasm from established to emerging models.
+
+**Topic Modelling.** Using BERTopic with `all-MiniLM-L6-v2` embeddings, we identified 20 coherent topics after reducing from 72. Core themes include AI News & Tech (General), ML Models & Training Data, Search, SEO & Marketing, and Agent Protocols (MCP/A2A). Topic dynamics over time confirm the January 2025 spike in search-related coverage.
+
+**Entity & Relation Extraction.** Using LangExtract, we extracted 26,205 entity mentions and 820 explicit relationships across the corpus. The most frequent entity types are products, companies, and persons. Google, Google DeepMind, OpenAI, and Nvidia dominate by mention count.
+
+**Knowledge Graph.** A NetworkX-based knowledge graph was constructed with 35,107 nodes (articles, entities, tags) and 111,115 edges. Degree centrality confirms Google and Google DeepMind as the most connected entities. The graph is exported and ready for reuse in Stage 3 RAG experiments.
+
+**Relevance for Stage 2.** The sentence embeddings (`all-MiniLM-L6-v2`, 384 dimensions) computed in this stage provide a direct baseline for comparison with Stage 2 classical embeddings (Word2Vec, FastText, Doc2Vec) and fine-tuned compact LLMs. The cleaned and tokenized corpus, the topic assignments, and the entity labels are all available as inputs for Stage 2 model training and evaluation.
 
 ## Structural Normalization
 
@@ -1315,28 +1335,15 @@ plt.show()
 
 ## Sentiment Analysis
 
-Sentiment analysis  is a crucial analysis whose goal is to extract sentiment out of a text.
-It is often news in product reviews to estimate customer satisfaction or for social analysis on different media.
-The sentiment is often expressed, either in a continuous score between -1 (negative) and 1 (positive), or in discrete value: -1, 0 (neutral), 1.
+Sentiment analysis is a key technique for extracting the emotional tone from text. It is widely used in product reviews, social media monitoring, and — as in our case — media analysis.
 
-In our case, the goal is somewhat similar: we want to extract sentiment out of news articles.
-The goal is to gather an general understanding of how is the AI media discourse percieved, thus potentially extrapolating on the market reliability or stability.
-Naturally, sentiment is inherently subjective. Furthermore, the result effectively depends on a model and unsupervised data.
-As such, **isolated** are to be taken lightly.
+Sentiment scores are typically expressed either as a continuous value between -1 (negative) and 1 (positive), or as discrete labels: negative, neutral, positive.
 
-Considering that we're currently handling unsupervised and highlighly contextual data, lexicon-based approach or machine learning model would probably prove lacking.
-Moreover, language model have to perform very well on a variety of task (@kumar2023comprehensivereviewsentimentanalysis), allow for powerful transfer learning.
-This is the technique that we're currently using.
-As fine-tuning a sentiment analysis language model isn't this section purpose, and would take much time considering the lack of labels,
-we leverage a fine-tuned RoBERTa model on twitter short texts, achieving very good performance and nuance comprehension (`cardiffnlp/twitter-roberta-base-sentiment-latest`).
+Our goal is to understand how AI is perceived in media discourse, which may serve as a proxy for market confidence and public perception of AI developments. Sentiment in news articles is inherently contextual and nuanced — isolated scores should therefore be interpreted with caution.
 
-Moreover, given that the average sentence length is fairly big, and thus unmanageable for most portable models, we'll conduct the sentiment on chunks instead of whole documents.
-Later, we could just aggregated the lables on a article level.
-Morevoero  this approach would allow us to have a more granular understanding of each article.
+Given the unsupervised, highly contextual nature of the data, lexicon-based approaches would prove insufficient. We instead leverage transfer learning via a fine-tuned RoBERTa model (`cardiffnlp/twitter-roberta-base-sentiment-latest`), which delivers strong performance on short, opinionated text.
 
-:::{.callout-warning}
-Insert here a average token length per discussion if not already.
-:::
+Since article lengths exceed most models' token limits, we perform sentiment analysis at the chunk level and then aggregate scores to the article level. This also enables more granular, paragraph-level insights.
 
 ```{python}
 #| label: "load_model"
@@ -1445,8 +1452,7 @@ with open("notebook/sentiment_analysis_results.json", "w") as fb:
 
 :::
 
-Now that we have all the chunks analyzse, we'll aggregate the results to each media.
-For this, 'negative' sentiment will have the value '-1', 'neutral' sentiment will be '0' and '1' sentiment will be '1'.
+With chunk-level sentiment computed, we aggregate the results to the article level. Negative sentiment is mapped to -1, neutral to 0, and positive to 1.
 
 ```{python}
 #| label: "media-with-sentiment"
@@ -1467,7 +1473,7 @@ media = media.drop(columns=["sentiment"], errors="ignore")
 media = media.merge(sentiment_per_media, on="media_id", how="left").rename(columns={"num_sentiment": "sentiment"})
 ```
 
-Good, now we have a good setup to finally do some analyzis.
+With article-level sentiment scores in place, we can now explore how sentiment varies across tags and media domains.
 
 ```{python}
 #| label: "media-with-tag"
@@ -1475,18 +1481,9 @@ Good, now we have a good setup to finally do some analyzis.
 media_with_tag = media.merge(media_has_tags, on="media_id", how="left")
 ```
 
-Broadly, we could look at the average sentiment per tag.
-Morevoer, since tags represent also represent companies or products, this is helpful in identiying public sentiment about particular technologies.
-Now, some tag have very poor representation throughout the media and thus would represent a biased view of the population.
+Tags represent not only topics but also specific companies and products, making tag-level sentiment a useful proxy for public perception of particular technologies. Since some tags appear in very few articles, we filter to only those tags where the standard error of the mean falls below the 5th percentile — retaining only statistically reliable estimates.
 
-Thus, we will only look at the average sentiment per tags for value having a standard errors below the 0.05 percentile.
-By using the standard error as an estimation of the true population mean, we filter out insights not reflecting the population.
-The use of the standard error relies on the assumption that the sentiment score is normally distributed.
-
-Naturally, this cannot be 100% the case, since our values do not go past -1 and 1.
-Moreover, even then, the distribution is negatively skewed, display a higher tendencies of sentiment score to be positive.
-This fact alone seem to reflect that the overall AI/Robotics market is faring well, or at least on the surface.
-Indeed, performance promises and investements are seen positively by the model.
+The sentiment distribution is negatively skewed, with a tendency toward positive scores. This likely reflects the broadly optimistic framing of AI developments in media — performance promises and investment announcements are consistently rated positively by the model. However, since the distribution is not perfectly normal, the standard error is not a fully unbiased estimator and results should be interpreted accordingly.
 
 ```{python}
 #| label: "sentiment-kde"
@@ -2113,8 +2110,8 @@ Organizations `ORG` are mostly be public institutions, such as universities, or 
 
 Products are most often AI products or model name, such as "Claude 3.5", while
 
-Overall, we retain 3 major entities: persons, organizations, products and countries.
-The rests can be considered as informations suplementing those entities and their relationships, mainly money, such as how much a model costed, or date, as when the model was published.
+Overall, we retain four major entity types: persons, organizations, products, and countries.
+The remaining entity types — such as money amounts and dates — serve as supplementary attributes enriching entities and their relationships (e.g., funding amounts or publication dates).
 
 ```{python}
 #| eval: false
@@ -3256,6 +3253,61 @@ if simple_graph.number_of_nodes() > 0:
     plt.show()
 ```
 
+#### Entity Relationship Network
+
+While the previous visualizations focus on individual entities or specific relationship types, this network provides a broader view of the entire entity-to-entity relationship landscape extracted from the corpus. Each node represents a unique entity, with node size proportional to its mention count across all articles. Directed edges capture the relationships identified by LangExtract, such as partnerships, collaborations, acquisitions, and applications. This visualization reveals how key players in the AI ecosystem are interconnected and which entities act as bridges between different clusters of activity.
+
+```{python}
+#| label: fig-kg-entity-network
+#| fig-cap: "Network of top entities and their relationships"
+
+top_n = 15
+all_entities = [
+    (n, d.get("mention_count", 0))
+    for n, d in G.nodes(data=True)
+    if d.get("node_type") == "entity"
+]
+anchor_nodes = {
+    n for n, _ in sorted(all_entities, key=lambda x: x[1], reverse=True)[:top_n]
+}
+
+# Build graph: anchors + all entities they connect to via RELATIONSHIP
+rel_graph = nx.DiGraph()
+
+for u, v, d in G.edges(data=True):
+    if d.get("edge_type") == "RELATIONSHIP":
+        if u in anchor_nodes or v in anchor_nodes:
+            u_name = G.nodes[u].get("entity_text", u)
+            v_name = G.nodes[v].get("entity_text", v)
+            rel_graph.add_edge(u_name, v_name, label=d.get("relationship_type", ""))
+            rel_graph.nodes[u_name]["mention_count"] = G.nodes[u].get("mention_count", 1)
+            rel_graph.nodes[v_name]["mention_count"] = G.nodes[v].get("mention_count", 1)
+
+fig, ax = plt.subplots(figsize=(14, 10))
+pos = nx.spring_layout(rel_graph, seed=42, k=2.5, iterations=100)
+
+node_sizes = [
+    rel_graph.nodes[n].get("mention_count", 10) * 30
+    for n in rel_graph.nodes()
+]
+
+nx.draw_networkx_nodes(rel_graph, pos, node_size=node_sizes,
+                       node_color="steelblue", alpha=0.8, ax=ax)
+nx.draw_networkx_edges(rel_graph, pos, arrows=True, arrowsize=15,
+                       edge_color="gray", alpha=0.5, ax=ax)
+nx.draw_networkx_labels(rel_graph, pos, font_size=8, ax=ax)
+nx.draw_networkx_edge_labels(rel_graph, pos,
+    edge_labels={(u, v): d["label"] for u, v, d in rel_graph.edges(data=True)},
+    font_size=6, ax=ax)
+
+ax.set_title("Top Entity Relationship Network (node size = mention count)",
+             fontsize=14, fontweight="bold")
+ax.axis("off")
+plt.tight_layout()
+plt.show()
+```
+
+The network illustrates the richness of entity interactions within the AI media corpus. Densely connected nodes such as Google, OpenAI, and Nvidia confirm their central role not only in terms of raw mention count but also in terms of active relationships with other actors. Smaller, peripheral nodes often represent emerging companies or niche technologies that interact with one or two central players, reflecting the hierarchical nature of the current AI landscape.
 
 #### Centrality Analysis
 
@@ -3390,8 +3442,6 @@ The table highlights entity-to-entity relationships involving Google within the 
 
 **Google’s entity-to-entity relationships**
 
-
-
 ```{python}
 #| label: fig-google-entity-relationships
 #| fig-cap: "Entity relationship network centered on Google"
@@ -3518,3 +3568,35 @@ with open(stats_path, "w") as f:
 
 
 
+
+## Conclusions and Outlook
+
+### What We Achieved
+
+Stage 1 of this project resulted in a complete, reproducible NLP pipeline covering all required components: data cleaning and normalization, exploratory analysis, sentiment analysis, temporal analysis, topic modelling, entity and relation extraction, and knowledge graph construction.
+
+We are satisfied with the overall quality and depth of the work. The data cleaning pipeline handles several non-trivial encoding issues (mojibake, hex remnants, sentence boundary artifacts) that would have compromised downstream analysis. The BERTopic implementation with pre-computed embeddings produces 20 interpretable and well-separated topics. The sentiment analysis at chunk level provides granular, article-level scores using a well-suited pre-trained model. The knowledge graph, built with NetworkX from LangExtract output, is structured, queryable, and exported for Stage 3 reuse.
+
+### Where We See Further Potential
+
+Despite the solid foundation, several areas could be improved given more time:
+
+**Entity quality.** The LangExtract output contains some noise — generic terms such as "users", "governments", or "societies" appear as entity nodes. A more refined filtering and normalization step would improve knowledge graph quality. The entity alias map is a good start but incomplete.
+
+**Relationship coverage.** Only 820 explicit relationships were extracted across 16,317 articles. LangExtract was run on a sample due to runtime constraints. Running it on the full corpus would substantially enrich the graph.
+
+**Topic–entity integration.** We identified 20 topics and thousands of entities independently, but did not explicitly link them in the knowledge graph. Adding topic nodes as a second entity layer (e.g., `OpenAI → belongs_to → ML Models & Training Data`) would enable richer trend queries in Stage 3.
+
+**Clustering coefficient.** The centrality analysis computes degree centrality but does not yet include clustering coefficients, which would reveal tightly connected subgroups within the AI ecosystem.
+
+**Sentiment refinement.** The RoBERTa model was trained on Twitter data, which differs stylistically from long-form journalism. A domain-adapted model would likely produce more reliable scores for this corpus.
+
+## Use of AI Tools
+
+Throughout this project, generative AI tools were used to support several parts of the workflow.
+
+AI was used for debugging Python code, resolving library-specific questions (spaCy, BERTopic, NetworkX, LangExtract), advising on architectural decisions such as the entity-relationship schema and knowledge graph design, and reviewing pull requests. AI also supported the writing of explanatory text throughout the notebook to ensure clarity and grammatical correctness, as this report is written in English as a non-native language.
+
+AI was also used during active coding sessions to accelerate boilerplate code generation, particularly for data transformation steps and visualization code.
+
+It is important to note that AI tools occasionally produced ambiguous or inconsistent answers, particularly for complex pipeline logic or edge cases in library APIs. All outputs were critically reviewed, and final decisions — including analytical interpretations, entity label choices, and topic assignments — were made manually by the team.
