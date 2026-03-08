@@ -1919,7 +1919,7 @@ print("Model saved.")
 ```
 
 ```{python}
-#| eval: false
+#| eval: true
 from umap import UMAP
 from hdbscan import HDBSCAN
 from sklearn.feature_extraction.text import CountVectorizer
@@ -2028,12 +2028,14 @@ The 20 main topics identified by the model can be labeled based on their most re
 #| echo: false
 #| warning: false
 
+from IPython.display import Image
 Image("notebook/figures/topic_barchart.png")
 ```
 
 ```{python}
 #| echo: false
 #| warning: false
+#| eval: true
 
 topic_model_reduced.visualize_topics()
 ```
