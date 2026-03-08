@@ -51,6 +51,10 @@ import langextract as lx
 import textwrap
 import seaborn as sns
 
+import networkx as nx
+from pathlib import Path
+from collections import Counter, defaultdict
+
 import torch
 from scipy.stats import sem
 from typing import List
@@ -1820,9 +1824,9 @@ import pandas as pd
 import os
 
 # Load cleaned data
-media = pd.read_csv("data/processed/media_cleaned.csv")
-media_has_chunk = pd.read_csv("data/processed/media_has_chunk_cleaned.csv")
-media_has_tags = pd.read_csv("data/processed/media_has_tags_cleaned.csv")
+# media = pd.read_csv("data/processed/media_cleaned.csv")
+# media_has_chunk = pd.read_csv("data/processed/media_has_chunk_cleaned.csv")
+# media_has_tags = pd.read_csv("data/processed/media_has_tags_cleaned.csv")
 
 # Parse date
 media["date"] = pd.to_datetime(media["date"])
@@ -2517,16 +2521,983 @@ fig.show()
 
 ## Knowledge Graph {#sec-kg}
 
-A knowledge graph is a way of depicting data in a highly relational way, akin to a mindmap. This allows a deep understanding and precise querying of entities and their relationships.
 
-Moreover, its data model mainly consists of 3 main components: node, relationships and properties. A node is corresponds to a data entities, while relationships are how different entities relate to each other. Moreover, properties are way to describe **both** node and relationships.
+This notebook constructs a knowledge graph from AI media articles using **NetworkX**.
 
-::: callout-tip
-See [Neo4j - Data Modelling](https://neo4j.com/docs/getting-started/data-modeling/) for more informations
-:::
+The graph contains three main node types:
 
-Its purpose, akin to a mindmap, is to create a precise and deep map of knowledge. Quality, rather that quantity, is were a Knowledge Graph seems to truly shines. As such, in the following section, we aim a creating a graph that focus on answering the following questions.
+- **Articles**
+- **Entities** such as companies, people, and products
+- **Tags**
 
-::: callout-warning
-This section needs to be implemented, though staring by figuring out the main questions we want to answer is a good starting point.
-:::
+The graph also includes three main edge types:
+
+- **MENTIONED_IN** links between entities and articles
+- **RELATIONSHIP** links between entities
+- **HAS_TAG** links between articles and tags
+
+### Data Sources
+
+The notebook uses the following input files:
+
+1. `langextract_extractions_json.pkl` — extracted entities and relationships
+2. `media_cleaned.csv` — article-level metadata
+3. `media_has_chunk_cleaned.csv` — article chunks
+4. `media_has_tags_cleaned.csv` — article tags
+
+
+### Data Loading
+
+```{python}
+#| label: load-data
+#| code-summary: "Show data loading code"
+#| echo: false
+
+extractions_path = Path("data/processed/langextract_extractions_json.pkl")
+media_path = Path("sandbox/data/media_cleaned.csv")
+chunks_path = Path("sandbox/data/media_has_chunk_cleaned.csv")
+tags_path = Path("sandbox/data/media_has_tags_cleaned.csv")
+
+with open(extractions_path, "rb") as f:
+    extractions = pickle.load(f)
+
+media = pd.read_csv(media_path)
+chunks = pd.read_csv(chunks_path)
+tags = pd.read_csv(tags_path)
+```
+
+In this step, the datasets required for constructing the knowledge graph are loaded into memory. The data consists of extracted entities and relationships, article metadata, article chunks, and associated tags. These sources provide both the structural and contextual information necessary for building the graph representation.
+
+The overview table below summarizes the size of each dataset used in the analysis.
+
+*Loaded Data Overview*
+
+```{python}
+#| label: data-overview
+#| tbl-cap: "Overview of the loaded datasets"
+
+pd.DataFrame(
+    {
+        "dataset": ["extractions", "media", "chunks", "tags"],
+        "rows": [len(extractions), len(media), len(chunks), len(tags)],
+    }
+)
+```
+
+### Data Preparation
+
+**Separate Entities and Relationships**
+
+The extracted information contains both entities and relationships in a single collection. To facilitate graph construction, these elements are separated into two structured tables: one containing entity mentions and another containing relationships between entities.
+
+This separation allows the knowledge graph to represent entities as nodes and relationships as edges, enabling more efficient graph construction and analysis.
+
+```{python}
+#| label: split-extractions
+#| code-summary: "Show entity and relationship preparation"
+
+entities_list = []
+relationships_list = []
+
+for item in extractions:
+    if "entity" in item and item["entity"] is not None:
+        entities_list.append(
+            {
+                "media_id": item["media_id"],
+                **item["entity"],
+            }
+        )
+    elif "relationship" in item and item["relationship"] is not None:
+        relationships_list.append(
+            {
+                "media_id": item["media_id"],
+                **item["relationship"],
+            }
+        )
+
+entities_df = pd.DataFrame(entities_list)
+relationships_df = pd.DataFrame(relationships_list)
+```
+
+```{python}
+#| label: cleaning_entities
+
+
+def clean_entity(text):
+
+    text = str(text).strip()
+
+    # remove descriptive prefixes
+    text = re.sub(r"^ai models like ", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^accelerate development of ", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^its ", "", text, flags=re.IGNORECASE)
+
+    # remove token related noise
+    text = re.sub(r" input tokens$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r" output token costs$", "", text, flags=re.IGNORECASE)
+
+    return text
+
+entities_df["entity_text"] = entities_df["entity_text"].apply(clean_entity)
+
+entities_df["entity_text"] = entities_df["entity_text"].str.strip()
+entities_df["entity_text"] = entities_df["entity_text"].str.replace(r"\s+", " ", regex=True)
+
+
+ENTITY_ALIAS_MAP = {
+    "nvidia": "Nvidia",
+    "nvidia corporation": "Nvidia",
+    "google deepmind": "Google DeepMind",
+    "google's gemini": "Google Gemini",
+    "google’s gemini": "Google Gemini",
+    "u.s.": "United States",
+    "u.s": "United States",
+    "us": "United States",
+    "ai": "AI",
+    "artificial intelligence": "Artificial Intelligence",
+}
+
+NOISE_PATTERNS = [
+    r"^ai models like\s+",
+    r"^models like\s+",
+    r"^accelerate development of\s+",
+    r"^development of\s+",
+    r"^its\s+",
+    r"^their\s+",
+    r"^the\s+",
+]
+
+TRAILING_NOISE_PATTERNS = [
+    r"\s+input tokens$",
+    r"\s+output token costs$",
+    r"\s+token costs$",
+    r"\s+coding agent project$",
+    r"\s+project$",
+]
+
+def normalize_whitespace(text: str) -> str:
+    return " ".join(str(text).strip().split())
+
+def clean_entity_text(text: str) -> str:
+    text = normalize_whitespace(text)
+
+    # Remove leading noisy descriptive phrases
+    for pattern in NOISE_PATTERNS:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+
+    # Remove trailing noisy phrases
+    for pattern in TRAILING_NOISE_PATTERNS:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+
+    text = normalize_whitespace(text)
+
+    # Apply alias mapping on lowercase form
+    lowered = text.lower()
+    if lowered in ENTITY_ALIAS_MAP:
+        return ENTITY_ALIAS_MAP[lowered]
+
+    # Default formatting
+    return text
+
+# Apply cleaning only if entity_text exists
+entities_df["entity_text"] = entities_df["entity_text"].apply(clean_entity_text)
+
+# Optional: remove empty entity names after cleaning
+entities_df = entities_df[entities_df["entity_text"].notna()]
+entities_df = entities_df[entities_df["entity_text"].astype(str).str.strip() != ""]
+
+# Optional quick check
+entities_df["entity_text"].value_counts().head(20)
+
+
+```
+
+**Extraction Summary**
+
+After separating the extracted information, we compute a summary of the resulting datasets. This overview provides a quick validation of the extraction process and highlights the number of entities and relationships identified in the corpus.
+```{python}
+#| label: extraction-summary
+#| tbl-cap: "Counts of extracted entities and relationships"
+
+pd.DataFrame(
+    {
+        "component": ["entities", "relationships"],
+        "count": [len(entities_df), len(relationships_df)],
+    }
+)
+```
+
+**Top Entity Types**
+To better understand the composition of the extracted entities, we examine the distribution of entity types. This helps identify which types of entities appear most frequently in the dataset, such as companies, products, people, and technologies.
+```{python}
+#| label: preview-entity-types
+#| tbl-cap: "Top 10 entity types"
+
+entities_df["type"].value_counts().head(10).rename_axis("entity_type").reset_index(name="count")
+```
+
+**Top Relationship Types**
+In addition to entities, the extraction process also identifies relationships between entities. Analyzing the distribution of relationship types provides insight into the kinds of interactions described in the articles, such as partnerships, collaborations, and applications of AI technologies.
+```{python}
+#| label: preview-relationship-types
+#| tbl-cap: "Top 10 relationship types"
+
+relationships_df["type"].value_counts().head(10).rename_axis("relationship_type").reset_index(name="count")
+```
+
+### Graph Construction
+
+**Initialize Graph**
+With the cleaned and structured data prepared, we initialize a directed multi-graph using NetworkX. This graph structure allows multiple relationships between the same pair of nodes and preserves the direction of relationships when applicable.
+```{python}
+#| label: init-graph
+
+G = nx.MultiDiGraph()
+
+```
+
+**Add Article Nodes**
+Each article in the dataset is represented as a node in the knowledge graph. These nodes store metadata such as the article title, publication domain, URL, and sentiment score. Article nodes act as the contextual source linking entities and tags.
+```{python}
+#| label: add-article-nodes
+#| code-summary: "Show article node creation"
+
+for _, row in media.iterrows():
+    G.add_node(
+        f"article_{row['media_id']}",
+        node_type="article",
+        media_id=row["media_id"],
+        title=row.get("title"),
+        domain=row.get("domain"),
+        url=row.get("url"),
+        date=row.get("date"),
+        sentiment=row.get("sentiment"),
+    )
+```
+
+**Add Tag Nodes and Edges**
+Tags associated with articles are added as separate nodes in the graph. Each tag is connected to the article it describes using a HAS_TAG relationship. This allows the graph to capture topical information and enables tag-based exploration of the dataset.
+```{python}
+#| label: add-tag-nodes-edges
+#| code-summary: "Show tag node and edge creation"
+
+unique_tags = tags["tag"].dropna().unique()
+
+for tag in unique_tags:
+    G.add_node(
+        f"tag_{tag}",
+        node_type="tag",
+        tag_name=tag,
+    )
+
+for _, row in tags.iterrows():
+    G.add_edge(
+        f"article_{row['media_id']}",
+        f"tag_{row['tag']}",
+        edge_type="HAS_TAG",
+    )
+```
+
+**Add Entity Nodes (Deduplicated)**
+Entities extracted from the articles are added to the graph as nodes. To avoid duplication, entities are consolidated based on their textual representation and type. Additional statistics, such as the number of mentions and the number of articles in which the entity appears, are computed and stored as node attributes.
+```{python}
+#| label: add-entity-nodes
+#| code-summary: "Show entity deduplication and node creation"
+
+entity_key_map = {}  # Maps (clean_entity_text, type) -> node_id
+entity_stats = defaultdict(
+    lambda: {
+        "mention_count": 0,
+        "articles": set(),
+        "attributes": {},
+        "original_forms": set(),
+    }
+)
+
+for _, entity in entities_df.iterrows():
+    raw_text = str(entity["entity_text"]).strip()
+    clean_text = " ".join(raw_text.lower().split())
+
+    key = (clean_text, entity["type"])
+
+    entity_stats[key]["mention_count"] += 1
+    entity_stats[key]["articles"].add(entity["media_id"])
+    entity_stats[key]["original_forms"].add(raw_text)
+
+    for col in entity.index:
+        if col not in ["media_id", "entity_text", "type", "start_pos", "end_pos"]:
+            val = entity[col]
+            if pd.notna(val) if not isinstance(val, (list, dict)) else val is not None:
+                entity_stats[key]["attributes"][col] = val
+
+    if key not in entity_key_map:
+        node_id = f"entity_{len(entity_key_map)}"
+        entity_key_map[key] = node_id
+
+        G.add_node(
+            node_id,
+            node_type="entity",
+            entity_text=raw_text,
+            entity_type=entity["type"],
+            mention_count=0,
+            article_count=0,
+        )
+
+for key, node_id in entity_key_map.items():
+    stats_entry = entity_stats[key]
+
+    canonical_name = min(stats_entry["original_forms"], key=len)
+
+    G.nodes[node_id]["entity_text"] = canonical_name
+    G.nodes[node_id]["mention_count"] = stats_entry["mention_count"]
+    G.nodes[node_id]["article_count"] = len(stats_entry["articles"])
+    G.nodes[node_id]["original_forms"] = list(stats_entry["original_forms"])
+
+    for attr_key, attr_val in stats_entry["attributes"].items():
+        G.nodes[node_id][attr_key] = attr_val
+```
+
+**Add Entity–Article Edges**
+Once entity nodes are created, each entity mention is linked to the corresponding article using a MENTIONED_IN relationship. These connections capture where entities appear within the corpus and provide a bridge between entities and the articles that reference them.
+```{python}
+#| label: add-mentioned-in-edges
+#| code-summary: "Show MENTIONED_IN edge creation"
+
+for _, entity in entities_df.iterrows():
+    raw_text = str(entity["entity_text"]).strip()
+    clean_text = " ".join(raw_text.lower().split())
+    key = (clean_text, entity["type"])
+
+    entity_node = entity_key_map[key]
+    article_node = f"article_{entity['media_id']}"
+
+    G.add_edge(
+        entity_node,
+        article_node,
+        edge_type="MENTIONED_IN",
+    )
+```
+
+**Add Explicit Relationship Edges**
+Explicit relationships extracted from the text are added as edges between entity nodes. These edges capture interactions such as collaborations, partnerships, or applications described in the articles. Relationship attributes such as dates or financial values are also stored when available.
+```{python}
+#| label: add-relationship-edges
+#| code-summary: "Show explicit relationship edge creation"
+
+relationship_edges = 0
+
+for _, rel in relationships_df.iterrows():
+    if "party" in rel and isinstance(rel["party"], list) and len(rel["party"]) >= 2:
+        parties = rel["party"]
+
+        for i in range(len(parties)):
+            for j in range(i + 1, len(parties)):
+                party1_text = parties[i]
+                party2_text = parties[j]
+
+                party1_clean = " ".join(str(party1_text).strip().lower().split())
+                party2_clean = " ".join(str(party2_text).strip().lower().split())
+
+                party1_nodes = [
+                    nid for (text, _), nid in entity_key_map.items()
+                    if text == party1_clean
+                ]
+                party2_nodes = [
+                    nid for (text, _), nid in entity_key_map.items()
+                    if text == party2_clean
+                ]
+
+                if party1_nodes and party2_nodes:
+                    G.add_edge(
+                        party1_nodes[0],
+                        party2_nodes[0],
+                        edge_type="RELATIONSHIP",
+                        relationship_type=rel["type"],
+                        entity_text=rel.get("entity_text", ""),
+                        date=rel.get("date", None),
+                        money_amount=rel.get("money_amount", None),
+                        media_id=rel["media_id"],
+                    )
+                    relationship_edges += 1
+```
+
+### Graph Statistics
+
+After constructing the knowledge graph, we compute summary statistics describing its structure. These statistics provide an overview of the size of the graph, including the number of nodes and edges, as well as the distribution of node types.
+```{python}
+#| label: graph-statistics
+
+stats = {
+    "total_nodes": G.number_of_nodes(),
+    "total_edges": G.number_of_edges(),
+    "article_nodes": len(
+        [n for n, d in G.nodes(data=True) if d.get("node_type") == "article"]
+    ),
+    "entity_nodes": len(
+        [n for n, d in G.nodes(data=True) if d.get("node_type") == "entity"]
+    ),
+    "tag_nodes": len(
+        [n for n, d in G.nodes(data=True) if d.get("node_type") == "tag"]
+    ),
+}
+
+stats_df = pd.DataFrame(
+    {
+        "metric": [
+            "Total nodes",
+            "Total edges",
+            "Article nodes",
+            "Entity nodes",
+            "Tag nodes",
+        ],
+        "value": [
+            stats["total_nodes"],
+            stats["total_edges"],
+            stats["article_nodes"],
+            stats["entity_nodes"],
+            stats["tag_nodes"],
+        ],
+    }
+)
+
+stats_df
+```
+
+
+**Entity Type Distribution**
+
+```{python}
+#| label: fig-entity-types
+#| fig-cap: "Distribution of the most common entity types"
+
+entity_types = Counter([d.get('entity_type', 'unknown') for n, d in G.nodes(data=True) 
+                        if d.get('node_type') == 'entity'])
+
+print("\nTop 15 Entity Types:")
+for i, (etype, count) in enumerate(entity_types.most_common(15), 1):
+    print(f"{i:2}. {etype:20} {count:5,}")
+```
+
+**Relationship Type Distribution**
+
+```{python}
+#| label: fig-relationship-types
+rel_types = Counter([d.get('relationship_type', 'unknown') for u, v, d in G.edges(data=True) 
+                     if d.get('edge_type') == 'RELATIONSHIP'])
+
+print("\nTop 15 Relationship Types:")
+for i, (rtype, count) in enumerate(rel_types.most_common(15), 1):
+    print(f"{i:2}. {rtype:20} {count:5,}")
+```
+
+### Visualizations
+
+To better understand the structure and content of the knowledge graph, we generate a series of visualizations. These plots highlight the most frequently mentioned entities, the distribution of entity and relationship types, and structural patterns within the network.
+
+#### Top Entities by Mention Count
+
+```{python}
+#| label: fig-kg-top-entities
+#| fig-cap: "Top 20 most mentioned entities across all articles"
+
+
+entity_aliases = {
+    "nvidia": "Nvidia",
+    "nvidia corporation": "Nvidia",
+    "u.s.": "United States",
+    "us": "United States",
+    "u.s": "United States",
+    "google deepmind": "Google DeepMind"
+}
+
+[
+    d.get("entity_text")
+    for _, d in G.nodes(data=True)
+    if "gemini" in str(d.get("entity_text")).lower()
+]
+
+entities = [
+    (
+        d.get("entity_text", ""),
+        d.get("mention_count", 0),
+        d.get("entity_type", "")
+    )
+    for _, d in G.nodes(data=True)
+    if d.get("node_type") == "entity"
+]
+
+top_entities = sorted(entities, key=lambda x: x[1], reverse=True)[:20]
+
+fig, ax = plt.subplots(figsize=(9, 6))
+names = [e[0] for e in top_entities]
+counts = [e[1] for e in top_entities]
+colors = plt.cm.Set3(range(len(names)))
+
+ax.barh(range(len(names)), counts, color=colors)
+ax.set_yticks(range(len(names)))
+ax.set_yticklabels(names)
+ax.set_xlabel("Mention Count", fontsize=12)
+ax.set_title("Top 20 Entities by Mention Count", fontsize=14, fontweight="bold")
+ax.invert_yaxis()
+
+plt.tight_layout()
+plt.show()
+```
+
+The figure shows the top 20 entities by mention count across the analyzed AI media articles. The results indicate a strong concentration of coverage around major technology firms and leading AI initiatives. Google and Google DeepMind dominate the mentions, suggesting their central role in the current AI landscape, while entities such as OpenAI, Nvidia, Microsoft, and ChatGPT further reflect the prominence of large technology companies and generative AI systems in shaping contemporary AI discourse.
+
+#### Entity Type Distribution
+
+```{python}
+#| label: fig-kg-entity-type-distribution
+#| fig-cap: "Distribution of entity types in the knowledge graph"
+
+
+top_types = entity_types.most_common(15)
+
+fig, ax = plt.subplots(figsize=(9, 6))
+types = [t[0] for t in top_types]
+type_counts = [t[1] for t in top_types]
+
+ax.bar(range(len(types)), type_counts, color="steelblue")
+ax.set_xticks(range(len(types)))
+ax.set_xticklabels(types, rotation=45, ha="right")
+ax.set_ylabel("Count", fontsize=12)
+ax.set_title("Top 15 Entity Types", fontsize=14, fontweight="bold")
+
+plt.tight_layout()
+plt.show()
+```
+
+Products, companies, and persons represent the most frequent entity categories, indicating that media coverage is strongly centered around technological products, corporate actors, and key individuals involved in AI development. Categories such as organizations, technologies, and locations also appear prominently, reflecting the broader institutional and geographic context in which AI innovation occurs. Overall, the distribution suggests that AI-related media narratives are driven primarily by commercial technologies and the organizations responsible for their development and deployment.
+
+#### Relationship Type Distribution
+
+```{python}
+#| label: fig-kg-relationship-type-distribution
+#| fig-cap: "Distribution of relationship types between entities"
+
+
+top_rel_types = rel_types.most_common(15)
+
+fig, ax = plt.subplots(figsize=(9, 6))
+rel_type_names = [t[0] for t in top_rel_types]
+rel_type_counts = [t[1] for t in top_rel_types]
+
+ax.barh(range(len(rel_type_names)), rel_type_counts, color="coral")
+ax.set_yticks(range(len(rel_type_names)))
+ax.set_yticklabels(rel_type_names)
+ax.set_xlabel("Count", fontsize=12)
+ax.set_title("Top 15 Relationship Types", fontsize=14, fontweight="bold")
+ax.invert_yaxis()
+
+plt.tight_layout()
+plt.show()
+```
+
+The figure shows the most common relationship types identified between entities in the knowledge graph. Partnership, application, and impact appear as the most frequent relationship categories, indicating that AI media coverage often focuses on collaborations between organizations and the practical deployment of AI technologies. Relationships such as collaboration, strategy, and functionality further highlight how discussions around AI frequently emphasize technological capabilities and strategic initiatives. Overall, the distribution suggests that media narratives around AI are largely framed through partnerships, technological applications, and their broader economic or societal implications.
+
+
+#### Tag Distribution
+
+```{python}
+#| label: fig-kg-tag-distribution
+#| fig-cap: "Distribution of tags across articles"
+#| fig-width: 7
+#| fig-height: 4
+
+tag_counts = {}
+
+for n, d in G.nodes(data=True):
+    if d.get("node_type") == "tag":
+        tag_counts[d.get("tag_name", "")] = len(list(G.in_edges(n)))
+
+sorted_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:15]
+
+fig, ax = plt.subplots(figsize=(9, 6))
+tag_names = [t[0] for t in sorted_tags]
+tag_vals = [t[1] for t in sorted_tags]
+
+ax.bar(range(len(tag_names)), tag_vals, color="mediumseagreen")
+ax.set_xticks(range(len(tag_names)))
+ax.set_xticklabels(tag_names, rotation=45, ha="right")
+ax.set_ylabel("Article Count", fontsize=12)
+ax.set_title("Top 15 Tags by Article Count", fontsize=14, fontweight="bold")
+
+plt.tight_layout()
+plt.show()
+```
+
+The figure shows the most common tags associated with the articles, with Generative AI, Video, and Large Language Models appearing most frequently. This indicates that recent AI media coverage is strongly focused on generative technologies and their applications across different domains.
+
+#### Acquisition Network
+
+```{python}
+#| label: fig-kg-acquisition-network
+#| fig-cap: "Network visualization of acquisition relationships"
+
+
+acquisition_edges = [
+    (u, v, d)
+    for u, v, d in G.edges(data=True)
+    if d.get("relationship_type") == "acquisition"
+]
+
+if acquisition_edges:
+    acq_graph = nx.DiGraph()
+
+    for u, v, d in acquisition_edges:
+        u_name = G.nodes[u].get("entity_text", u)
+        v_name = G.nodes[v].get("entity_text", v)
+        acq_graph.add_edge(u_name, v_name, **d)
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    pos = nx.spring_layout(acq_graph, k=2, iterations=50, seed=42)
+
+    nx.draw_networkx_nodes(
+        acq_graph,
+        pos,
+        node_color="lightblue",
+        node_size=1000,
+        alpha=0.9,
+        ax=ax
+    )
+    nx.draw_networkx_edges(
+        acq_graph,
+        pos,
+        edge_color="gray",
+        arrows=True,
+        arrowsize=20,
+        ax=ax
+    )
+    nx.draw_networkx_labels(acq_graph, pos, font_size=8, ax=ax)
+
+    ax.set_title("Acquisition Network", fontsize=14, fontweight="bold")
+    ax.axis("off")
+
+    plt.tight_layout()
+    plt.show()
+```
+
+This network illustrates acquisition relationships identified in the dataset. Nodes represent companies, while edges indicate acquisition events extracted from the articles. Due to the limited number of acquisition mentions in the corpus, the resulting network consists of a small number of isolated acquisition pairs.
+
+#### Company Network
+
+```{python}
+#| label: fig-kg-company-network
+#| fig-cap: "Network of top 20 companies and their relationships"
+
+
+companies = [
+    (n, d.get("entity_text", ""), d.get("mention_count", 0))
+    for n, d in G.nodes(data=True)
+    if d.get("node_type") == "entity" and d.get("entity_type") == "company"
+]
+
+top_companies = sorted(companies, key=lambda x: x[2], reverse=True)[:20]
+top_company_nodes = {c[0] for c in top_companies}
+
+company_subgraph = G.subgraph(top_company_nodes).copy()
+
+simple_graph = nx.Graph()
+
+for n, d in company_subgraph.nodes(data=True):
+    simple_graph.add_node(d.get("entity_text", ""), **d)
+
+for u, v, d in company_subgraph.edges(data=True):
+    if d.get("edge_type") == "RELATIONSHIP":
+        u_name = G.nodes[u].get("entity_text", "")
+        v_name = G.nodes[v].get("entity_text", "")
+        simple_graph.add_edge(u_name, v_name, **d)
+
+if simple_graph.number_of_nodes() > 0:
+    fig, ax = plt.subplots(figsize=(9, 6))
+    pos = nx.spring_layout(simple_graph, k=3, iterations=50, seed=42)
+
+    node_sizes = []
+    for node in simple_graph.nodes():
+        orig_node = [
+            n for n, d in G.nodes(data=True)
+            if d.get("entity_text") == node
+        ]
+        if orig_node:
+            size = G.nodes[orig_node[0]].get("mention_count", 10) * 50
+            node_sizes.append(size)
+        else:
+            node_sizes.append(500)
+
+    nx.draw_networkx_nodes(
+        simple_graph,
+        pos,
+        node_color="lightcoral",
+        node_size=node_sizes,
+        alpha=0.7,
+        ax=ax
+    )
+    nx.draw_networkx_edges(
+        simple_graph,
+        pos,
+        edge_color="gray",
+        width=1,
+        alpha=0.5,
+        ax=ax
+    )
+    nx.draw_networkx_labels(simple_graph, pos, font_size=9, ax=ax)
+
+    ax.set_title(
+        "Top 20 Companies Network (node size = mention count)",
+        fontsize=14,
+        fontweight="bold"
+    )
+    ax.axis("off")
+
+    plt.tight_layout()
+    plt.show()
+```
+
+
+#### Centrality Analysis
+
+Centrality analysis is used to identify the most important nodes in a network based on their position and connections. In this knowledge graph, nodes represent entities extracted from AI-related media articles, while edges represent relationships between them. We use **degree centrality**, which measures how many connections a node has relative to the total number of nodes in the network. It is calculated as \( C_D(v) = \frac{deg(v)}{N-1} \), where \(deg(v)\) is the number of connections of node \(v\) and \(N\) is the total number of nodes. Entities with higher centrality scores are more strongly connected within the AI ecosystem.
+
+```{python}
+#| label: fig-kg-centrality-analysis
+#| fig-cap: "Most connected entities based on degree centrality"
+
+entity_nodes = [
+    n for n, d in G.nodes(data=True)
+    if d.get("node_type") == "entity"
+]
+
+entity_subgraph = G.subgraph(entity_nodes)
+degree_cent = nx.degree_centrality(entity_subgraph)
+top_central = sorted(degree_cent.items(), key=lambda x: x[1], reverse=True)[:20]
+
+fig, ax = plt.subplots(figsize=(9, 6))
+names = [G.nodes[n].get("entity_text", "") for n, _ in top_central]
+scores = [score for _, score in top_central]
+
+ax.barh(range(len(names)), scores, color="mediumpurple")
+ax.set_yticks(range(len(names)))
+ax.set_yticklabels(names)
+ax.set_xlabel("Degree Centrality", fontsize=12)
+ax.set_title("Top 20 Most Connected Entities", fontsize=14, fontweight="bold")
+ax.invert_yaxis()
+
+plt.tight_layout()
+plt.show()
+```
+
+#### Small ego network around "healthcare"
+```{python}
+#| label: fig-google-ego-network
+#| fig-cap: "Local network centered on Google"
+
+
+target_entity = "healthcare"
+
+# Find the node id for Google
+google_nodes = [
+    n for n, d in G.nodes(data=True)
+    if d.get("node_type") == "entity" and d.get("entity_text") == target_entity
+]
+
+if google_nodes:
+    google_node = google_nodes[0]
+
+    # Get direct neighbors
+    neighbors = set(G.predecessors(google_node)) | set(G.successors(google_node))
+    ego_nodes = {google_node} | neighbors
+
+    # Build subgraph
+    ego_graph = G.subgraph(ego_nodes).copy()
+
+    # Create a simpler graph for plotting labels cleanly
+    plot_graph = nx.Graph()
+
+    for n, d in ego_graph.nodes(data=True):
+        label = d.get("entity_text") or d.get("tag_name") or d.get("title") or str(n)
+        plot_graph.add_node(
+            n,
+            label=label,
+            node_type=d.get("node_type", "unknown")
+        )
+
+    for u, v, d in ego_graph.edges(data=True):
+        edge_label = d.get("relationship_type") or d.get("edge_type", "")
+        plot_graph.add_edge(u, v, label=edge_label)
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    pos = nx.spring_layout(plot_graph, seed=42, k=1.5)
+
+    nx.draw_networkx_nodes(plot_graph, pos, node_size=1400, alpha=0.8, ax=ax)
+    nx.draw_networkx_edges(plot_graph, pos, alpha=0.6, ax=ax)
+
+    node_labels = {n: d["label"] for n, d in plot_graph.nodes(data=True)}
+    edge_labels = {(u, v): d["label"] for u, v, d in plot_graph.edges(data=True)}
+
+    nx.draw_networkx_labels(plot_graph, pos, labels=node_labels, font_size=9, ax=ax)
+    nx.draw_networkx_edge_labels(plot_graph, pos, edge_labels=edge_labels, font_size=7, ax=ax)
+
+    ax.set_title("Healthcare Ego Network", fontsize=14, fontweight="bold")
+    ax.axis("off")
+    plt.tight_layout()
+    plt.show()
+```
+
+The figure illustrates a local ego network centered on the entity “healthcare”. The central node represents the healthcare concept, while the surrounding nodes correspond to articles and entities connected to it through MENTIONED_IN relationships. This visualization highlights how healthcare-related discussions are linked to a variety of AI topics, including agentic AI, annotation tools, data infrastructure, and industry applications, demonstrating the broad integration of AI technologies within the healthcare domain.
+
+#### Only Google’s entity-to-entity relationship
+
+```{python}
+google_node = [
+    n for n, d in G.nodes(data=True)
+    if d.get("node_type") == "entity" and d.get("entity_text") == "Google"
+][0]
+
+google_relationships = []
+
+for u, v, d in G.edges(data=True):
+    if d.get("edge_type") == "RELATIONSHIP" and (u == google_node or v == google_node):
+        google_relationships.append({
+            "source": G.nodes[u].get("entity_text", u),
+            "target": G.nodes[v].get("entity_text", v),
+            "relationship_type": d.get("relationship_type", ""),
+            "media_id": d.get("media_id", "")
+        })
+
+pd.DataFrame(google_relationships)
+```
+
+The table highlights entity-to-entity relationships involving Google within the knowledge graph. The relationships include collaborations, partnerships, acquisitions, and organizational changes, illustrating Google's central position in the AI ecosystem and its interactions with both internal entities (e.g., Google DeepMind) and external actors.
+
+**Google’s entity-to-entity relationships**
+
+
+
+```{python}
+#| label: fig-google-entity-relationships
+#| fig-cap: "Entity relationship network centered on Google"
+#| fig-width: 7
+#| fig-height: 4
+
+target_entity = "Google"
+
+google_nodes = [
+    n for n, d in G.nodes(data=True)
+    if d.get("node_type") == "entity" and d.get("entity_text") == target_entity
+]
+
+if google_nodes:
+    google_node = google_nodes[0]
+
+    related_edges = []
+    related_nodes = {google_node}
+
+    for u, v, d in G.edges(data=True):
+        if d.get("edge_type") == "RELATIONSHIP" and (u == google_node or v == google_node):
+            related_edges.append((u, v, d))
+            related_nodes.add(u)
+            related_nodes.add(v)
+
+    subG = nx.DiGraph()
+
+    for n in related_nodes:
+        subG.add_node(n, label=G.nodes[n].get("entity_text", str(n)))
+
+    for u, v, d in related_edges:
+        subG.add_edge(u, v, label=d.get("relationship_type", ""))
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    pos = nx.spring_layout(subG, seed=42, k=2)
+
+    nx.draw_networkx_nodes(subG, pos, node_size=1800, alpha=0.8, ax=ax)
+    nx.draw_networkx_edges(subG, pos, arrows=True, arrowsize=20, alpha=0.6, ax=ax)
+    nx.draw_networkx_labels(
+        subG,
+        pos,
+        labels={n: d["label"] for n, d in subG.nodes(data=True)},
+        font_size=9,
+        ax=ax
+    )
+    nx.draw_networkx_edge_labels(
+        subG,
+        pos,
+        edge_labels={(u, v): d["label"] for u, v, d in subG.edges(data=True)},
+        font_size=8,
+        ax=ax
+    )
+
+    ax.set_title("Google Relationship Network", fontsize=14, fontweight="bold")
+    ax.axis("off")
+    plt.tight_layout()
+    plt.show()
+```
+
+### Export Results
+
+Finally, the constructed knowledge graph and its derived datasets are exported for further analysis. The graph structure is saved in serialized form, while entity and relationship tables are exported as CSV files. Summary statistics are also stored to facilitate downstream analysis or integration with graph databases.
+
+```{python}
+#| label: kg-export-results
+#| code-summary: "Show export code"
+
+output_dir = Path("notebook/knowledge_graph")
+output_dir.mkdir(parents=True, exist_ok=True)
+
+graph_path = output_dir / "knowledge_graph.pkl"
+with open(graph_path, "wb") as f:
+    pickle.dump(G, f)
+
+entity_export = []
+for n, d in G.nodes(data=True):
+    if d.get("node_type") == "entity":
+        entity_export.append(
+            {
+                "node_id": n,
+                "entity_text": d.get("entity_text", ""),
+                "entity_type": d.get("entity_type", ""),
+                "mention_count": d.get("mention_count", 0),
+                "article_count": d.get("article_count", 0),
+            }
+        )
+
+entity_df = pd.DataFrame(entity_export).sort_values("mention_count", ascending=False)
+entity_path = output_dir / "entities.csv"
+entity_df.to_csv(entity_path, index=False)
+
+rel_export = []
+for u, v, d in G.edges(data=True):
+    if d.get("edge_type") == "RELATIONSHIP":
+        rel_export.append(
+            {
+                "source": u,
+                "target": v,
+                "source_entity": G.nodes[u].get("entity_text", ""),
+                "target_entity": G.nodes[v].get("entity_text", ""),
+                "relationship_type": d.get("relationship_type"),
+                "date": d.get("date"),
+                "money_amount": d.get("money_amount"),
+                "media_id": d.get("media_id"),
+            }
+        )
+
+rel_df = pd.DataFrame(rel_export)
+rel_path = output_dir / "relationships.csv"
+rel_df.to_csv(rel_path, index=False)
+
+stats_path = output_dir / "graph_statistics.json"
+with open(stats_path, "w") as f:
+    json.dump(
+        {
+            **stats,
+            "entity_types": dict(entity_types.most_common(20)),
+            "relationship_types": dict(rel_types.most_common(20)),
+        },
+        f,
+        indent=2,
+    )
+```
+
+
+
