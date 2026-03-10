@@ -34,10 +34,13 @@ warnings.filterwarnings("ignore")
 nltk.download("wordnet", quiet=True)
 nltk.download("omw-1.4", quiet=True)
 
+# Resolve repo root: works both interactively and during quarto render
+_cwd = Path.cwd()
+REPO_ROOT = _cwd if (_cwd / "data").exists() else _cwd.parents[1]
+STAGE1_DIR = REPO_ROOT / "data/processed"
+STAGE2_DIR = REPO_ROOT / "data/processed/stage2"
+
 SEED = 42
-STAGE1_DIR = Path("data/processed")
-STAGE2_DIR = Path("data/processed/stage2")
-STAGE2_DIR.mkdir(parents=True, exist_ok=True)
 ```
 
 ## Loading Stage 1 Data

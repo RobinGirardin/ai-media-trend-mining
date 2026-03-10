@@ -27,7 +27,12 @@ import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore")
 
-STAGE2_DIR = Path("data/processed/stage2")
+# Resolve repo root: works both interactively and during quarto render
+_cwd = Path.cwd()
+REPO_ROOT = _cwd if (_cwd / "data").exists() else _cwd.parents[1]
+STAGE1_DIR = REPO_ROOT / "data/processed"
+STAGE2_DIR = REPO_ROOT / "data/processed/stage2"
+
 SEED = 42
 ```
 
@@ -317,10 +322,10 @@ Since `media_id` values are not contiguous after the cleaning steps in Stage 1, 
 #| echo: true
 
 # Load MiniLM embeddings from Stage 1
-embeddings = np.load("data/processed/embeddings.npy")
+embeddings = np.load(STAGE1_DIR / "embeddings.npy")
 
 # Build mapping: media_id -> embedding row index
-media_index = pd.read_csv("data/processed/media_cleaned.csv", usecols=["media_id"])
+media_index = pd.read_csv(STAGE1_DIR / "media_cleaned.csv", usecols=["media_id"])
 media_id_to_idx = {mid: idx for idx, mid in enumerate(media_index["media_id"])}
 
 # Align to train/test splits via mapping
@@ -353,18 +358,24 @@ print(classification_report(y_test_topic, y_pred))
 ```{python}
 #| label: summary-table-final
 #| echo: true
+
+summary = pd.DataFrame({
+    "Model": ["Word2Vec", "FastText", "MiniLM", "Word2Vec", "FastText", "MiniLM*"],
     "Task": ["Sentiment", "Sentiment", "Sentiment", "Topic", "Topic", "Topic"],
     "Macro-F1": [0.752, 0.745, 0.650, 0.776, 0.773, 0.870],
 })
 
 summary["Macro-F1"] = summary["Macro-F1"].map("{:.3f}".format)
 
-summary.style \
-    .set_properties(**{"text-align": "center"}) \
+styled = (
+    summary.style
+    .set_properties(**{"text-align": "center"})
     .set_table_styles([
         {"selector": "th", "props": [("text-align", "center"), ("background-color", "#f0f0f0")]}
-    ]) \
+    ])
     .apply(lambda x: ["background-color: #fff3cd" if x["Model"] == "MiniLM*" else "" for _ in x], axis=1)
+)
+styled
 ```
 *\* MiniLM topic result is invalid - labels were derived from MiniLM embeddings in Stage 1.*
 
