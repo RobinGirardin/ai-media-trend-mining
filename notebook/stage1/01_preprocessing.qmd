@@ -46,7 +46,7 @@ import sys
 import pandas as pd
 import os
 import time
-from src.lib import parse_string_into_list
+from lib import parse_string_into_list
 import langextract as lx
 import textwrap
 import seaborn as sns
