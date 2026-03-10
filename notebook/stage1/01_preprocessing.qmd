@@ -72,7 +72,7 @@ from langdetect import detect, LangDetectException
 ```{python}
 #| label: data loading
 #| echo: false
-ai_media = pd.read_csv("data/raw/ai_media_dataset.csv")
+ai_media = pd.read_csv("../../data/raw/ai_media_dataset.csv")
 ```
 
 ## Overview
@@ -224,18 +224,18 @@ media_has_tags = (
 ```{python}
 #| label: storing-processed-data
 #| eval: false
-os.makedirs("data/processed", exist_ok=True)
+os.makedirs("../../data/processed", exist_ok=True)
 
-media.to_csv("data/processed/media.csv", index=False)
-media_has_chunk.to_csv("data/processed/media_has_chunk.csv", index=False)
-media_has_tags.to_csv("data/processed/media_has_tags.csv", index=False)
+media.to_csv("../../data/processed/media.csv", index=False)
+media_has_chunk.to_csv("../../data/processed/media_has_chunk.csv", index=False)
+media_has_tags.to_csv("../../data/processed/media_has_tags.csv", index=False)
 ```
 
 ```{python}
 #| echo: false
-media = pd.read_csv("data/processed/media.csv")
-media_has_chunk = pd.read_csv("data/processed/media_has_chunk.csv")
-media_has_tags = pd.read_csv("data/processed/media_has_tags.csv")
+media = pd.read_csv("../../data/processed/media.csv")
+media_has_chunk = pd.read_csv("../../data/processed/media_has_chunk.csv")
+media_has_tags = pd.read_csv("../../data/processed/media_has_tags.csv")
 
 media.head()
 ```
@@ -939,7 +939,7 @@ import spacy
 # TOKENIZING MEDIA
 
 
-#media = pd.read_parquet("data/processed/media_clean.parquet")
+#media = pd.read_parquet("../../data/processed/media_clean.parquet")
 
 import spacy
 # Initialize lightweight English tokenizer
@@ -1013,8 +1013,8 @@ To reduce noise and improve signal quality, we remove stopwords using spaCy’s 
 #| eval: true
 
 
-media = pd.read_parquet("data/processed/media_tls.parquet")
-media_has_chunk = pd.read_parquet("data/processed/media_has_chunk_tls.parquet")
+media = pd.read_parquet("../../data/processed/media_tls.parquet")
+media_has_chunk = pd.read_parquet("../../data/processed/media_has_chunk_tls.parquet")
 
 
 
@@ -1030,8 +1030,8 @@ media_has_chunk["tokens_no_stop"] = media_has_chunk["tokens"].apply(
 )
 
 # Save intermediate
-# media.to_parquet("data/processed/media_tls.parquet", index=False)
-# media_has_chunk.to_parquet("data/processed/media_has_chunk_tls.parquet", index=False)
+# media.to_parquet("../../data/processed/media_tls.parquet", index=False)
+# media_has_chunk.to_parquet("../../data/processed/media_has_chunk_tls.parquet", index=False)
 
 print("Example after stop word removal:", media["tokens_no_stop"].iloc[0][:20])
 ```
@@ -1060,8 +1060,8 @@ import nltk
 from nltk.stem import WordNetLemmatizer
 
 # Load existing file
-# media = pd.read_parquet("data/processed/media_tls.parquet")
-# media_has_chunk = pd.read_parquet("data/processed/media_has_chunk_tls.parquet")
+# media = pd.read_parquet("../../data/processed/media_tls.parquet")
+# media_has_chunk = pd.read_parquet("../../data/processed/media_has_chunk_tls.parquet")
 
 
 
@@ -1388,13 +1388,13 @@ for size in sample_size:
 	after = time.time()
 	runtime.append(after - before)
 
-pd.DataFrame({"sample_size": sample_size, "runtime": runtime}).to_csv("notebook/runtimes.csv")
+pd.DataFrame({"sample_size": sample_size, "runtime": runtime}).to_csv("runtimes.csv")
 ```
 
 ```{python}
 #| label: "sent-pipe-runtime-estimation"
 
-runtimes = pd.read_csv("notebook/runtimes.csv")
+runtimes = pd.read_csv("runtimes.csv")
 
 runtime = runtimes.runtime.values
 sample_size = runtimes.sample_size.values
@@ -1444,9 +1444,9 @@ sentiments = [res["label"] for res in result]
 media_has_chunk["sentiment"] = sentiments
 
 if "sentiment" in media_has_chunk.columns:
-	media_has_chunk.to_csv("data/processed/media_has_chunk.csv")
+	media_has_chunk.to_csv("../../data/processed/media_has_chunk.csv")
 
-with open("notebook/sentiment_analysis_results.json", "w") as fb:
+with open("sentiment_analysis_results.json", "w") as fb:
 	json.dump(result, fb)
 ```
 
@@ -1821,16 +1821,16 @@ import pandas as pd
 import os
 
 # Load cleaned data
-media = pd.read_csv("data/processed/media_cleaned.csv")
-media_has_chunk = pd.read_csv("data/processed/media_has_chunk_cleaned.csv")
-media_has_tags = pd.read_csv("data/processed/media_has_tags_cleaned.csv")
+media = pd.read_csv("../../data/processed/media_cleaned.csv")
+media_has_chunk = pd.read_csv("../../data/processed/media_has_chunk_cleaned.csv")
+media_has_tags = pd.read_csv("../../data/processed/media_has_tags_cleaned.csv")
 
 # Parse date
 media["date"] = pd.to_datetime(media["date"])
 media["month"] = media["date"].dt.to_period("M")
 
 # Ensure figures directory exists
-os.makedirs("notebook/figures", exist_ok=True)
+os.makedirs("figures", exist_ok=True)
 
 print(f"Articles: {len(media)}")
 print(f"Chunks: {len(media_has_chunk)}")
@@ -1855,7 +1855,7 @@ embeddings = embedding_model.encode(
 )
 
 # Save to disk
-np.save("data/processed/embeddings.npy", embeddings)
+np.save("../../data/processed/embeddings.npy", embeddings)
 print(f"Embeddings shape: {embeddings.shape}")
 ```
 
@@ -1883,7 +1883,7 @@ import copy
 
 # Load pre-calculated embeddings
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-embeddings = np.load("data/processed/embeddings.npy")
+embeddings = np.load("../../data/processed/embeddings.npy")
 
 # UMAP - dimensionality reduction
 umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric='cosine', random_state=42)
@@ -1914,7 +1914,7 @@ topic_model_reduced = topic_model.reduce_topics(
 )
 
 # Save model
-topic_model_reduced.save("data/processed/bertopic_model")
+topic_model_reduced.save("../../data/processed/bertopic_model")
 print("Model saved.")
 ```
 
@@ -1926,7 +1926,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from bertopic import BERTopic
 import numpy as np
 import copy
-topic_model_reduced = BERTopic.load("data/processed/bertopic_model")
+topic_model_reduced = BERTopic.load("../../data/processed/bertopic_model")
 ```
 
 With 72 initial topics, the model produces more granular results than needed for interpretation. BERTopic allows merging similar topics without retraining, enabling us to consolidate the topic structure while retaining the original embeddings and semantic relationships. We reduce the number of topics to 21 (20 main topics + 1 for outliers).
@@ -1967,11 +1967,11 @@ topic_model_reduced.set_topic_labels(topic_labels)
 
 # Barchart
 fig_bar = topic_model_reduced.visualize_barchart(top_n_topics=21, custom_labels=True)
-fig_bar.write_image("notebook/figures/topic_barchart.png", scale=2)
+fig_bar.write_image("figures/topic_barchart.png", scale=2)
 
 # Topic similarity map
 fig_topics = topic_model_reduced.visualize_topics()
-fig_topics.write_image("notebook/figures/topic_similarity.png", scale=2)
+fig_topics.write_image("figures/topic_similarity.png", scale=2)
 
 # Frequency bar chart
 import matplotlib.pyplot as plt
@@ -1986,7 +1986,7 @@ ax.set_title("Topic Frequencies (Reduced Model)")
 ax.set_xlabel("Number of Articles")
 ax.set_ylabel("")
 plt.tight_layout()
-fig.savefig("notebook/figures/topic_frequencies.png", dpi=150, bbox_inches="tight")
+fig.savefig("figures/topic_frequencies.png", dpi=150, bbox_inches="tight")
 plt.show()
 
 # Topics over time
@@ -1998,7 +1998,7 @@ topics_over_time = topic_model_reduced.topics_over_time(
 )
 
 import pickle
-with open("data/processed/topics_over_time.pkl", "wb") as f:
+with open("../../data/processed/topics_over_time.pkl", "wb") as f:
     pickle.dump(topics_over_time, f)
 
 top_topics = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -2016,7 +2016,7 @@ ax2.set_ylabel("Frequency")
 ax2.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
 plt.xticks(rotation=45, ha="right")
 plt.tight_layout()
-fig2.savefig("notebook/figures/topics_over_time.png", dpi=150, bbox_inches="tight")
+fig2.savefig("figures/topics_over_time.png", dpi=150, bbox_inches="tight")
 plt.show()
 
 print("All figures saved.")
@@ -2029,7 +2029,7 @@ The 20 main topics identified by the model can be labeled based on their most re
 #| warning: false
 
 from IPython.display import Image
-Image("notebook/figures/topic_barchart.png")
+Image("figures/topic_barchart.png")
 ```
 
 ```{python}
@@ -2047,7 +2047,7 @@ Now that we have a good understanding of the main topics, we can look at their f
 #| warning: false
 
 from IPython.display import Image
-Image("notebook/figures/topic_frequencies.png")
+Image("figures/topic_frequencies.png")
 ```
 
 Loading the topics over time data and visualizing the temporal evolution of the main topics.
@@ -2057,7 +2057,7 @@ Loading the topics over time data and visualizing the temporal evolution of the 
 #| warning: false
 
 from IPython.display import Image
-Image("notebook/figures/topics_over_time.png")
+Image("figures/topics_over_time.png")
 ```
 
 Using BERTopic with pre-calculated sentence embeddings, UMAP dimensionality reduction, and HDBSCAN clustering, we identified 72 initial topics which were subsequently reduced to 20 coherent themes. These span technical domains such as ML Models & Training Data, Quantum Computing, and Agent Protocols, applied areas like Healthcare, Autonomous Vehicles, and Cybersecurity, and broader societal themes including AI Regulation, Stocks & Market Ratings, and US Politics & China Relations.
@@ -2280,8 +2280,8 @@ result = lx.extract(
 #| echo: false
 #| label: "langextract-save-visualization"
 lx.io.save_annotated_documents([result], output_name="extraction_results.jsonl", output_dir=".")
-html_content = lx.visualize("notebook/extraction_results.jsonl")
-with open("notebook/visualization.html", "w") as f:
+html_content = lx.visualize("extraction_results.jsonl")
+with open("visualization.html", "w") as f:
     if hasattr(html_content, 'data'):
         f.write(html_content.data)  # For Jupyter/Colab
     else:
@@ -2344,7 +2344,7 @@ for i, (media_id, text) in articles.iterrows():
 		print(f"Error: {error}")
 		continue
 
-with open("notebook/langextract_extraction_results.pkl", "wb") as fb:
+with open("langextract_extraction_results.pkl", "wb") as fb:
 	pickle.dump(extracted_documents, fb)
 ```
 
@@ -2362,7 +2362,7 @@ for doc in documents:
 	json_annotations.extend(flattened_extraction)
 
 with open(
-	"data/processed/langchain_extractions_json.pkl", "wb"
+	"../../data/processed/langchain_extractions_json.pkl", "wb"
 ) as file:
         pickle.dump(json_annotations, file)
 
@@ -2371,7 +2371,7 @@ with open(
 ```{python}
 #| label: "flattened-annotations-loading"
 
-with open("data/processed/langextract_extractions_json.pkl", "rb") as file:
+with open("../../data/processed/langextract_extractions_json.pkl", "rb") as file:
 	extract = pickle.load(file)
 ```
 
@@ -2438,14 +2438,14 @@ for media_id in media_id_list:
 			coc_matrix[idx_mapping[ent], idx_mapping[neigh]] += 1
 
 coc_df = pd.DataFrame(coc_matrix, columns=idx_mapping.keys(), index=idx_mapping.keys())
-coc_df.to_csv("data/processed/co_occurrence_matrix.csv", index=False)
-coc_df.to_parquet("data/processed/co_occurrence_matrix.parquet", engine="fastparquet")
+coc_df.to_csv("../../data/processed/co_occurrence_matrix.csv", index=False)
+coc_df.to_parquet("../../data/processed/co_occurrence_matrix.parquet", engine="fastparquet")
 ```
 
 ```{python}
 #| echo: false
 #| label: load-co-occurrence-matrix
-coc = pd.read_parquet("data/processed/co_occurrence_matrix.parquet", engine="fastparquet")
+coc = pd.read_parquet("../../data/processed/co_occurrence_matrix.parquet", engine="fastparquet")
 ```
 
 ```{python}
@@ -2456,7 +2456,7 @@ fig, ax = plt.subplots(figsize=(10, 15))
 sns.heatmap(coc, ax=ax)
 ax.tick_params("x", rotation=90)
 plt.tight_layout()
-plt.savefig("notebook/heatmap-co-occurrence-matrix.png")
+plt.savefig("heatmap-co-occurrence-matrix.png")
 ```
 
 As expected, sparsity is very high and it is hard to see which entity text is most often associated with.
@@ -2488,13 +2488,13 @@ coc_reddim_df = pd.DataFrame(
 	columns=["x", "y", "entity_text"]
 )
 
-coc_reddim_df.to_csv("data/processed/reduced-co-occurrence-matrix.csv", index=False)
+coc_reddim_df.to_csv("../../data/processed/reduced-co-occurrence-matrix.csv", index=False)
 ```
 
 ```{python}
 #| echo: false
 #| label: "load-coc-reddim"
-coc_reddim_df = pd.read_csv("data/processed/reduced-co-occurrence-matrix.csv")
+coc_reddim_df = pd.read_csv("../../data/processed/reduced-co-occurrence-matrix.csv")
 ```
 
 Hovering over clusters of point, the user can them and the corresponding entities.
@@ -2553,10 +2553,10 @@ The notebook uses the following input files:
 #| code-summary: "Show data loading code"
 #| echo: false
 
-extractions_path = Path("data/processed/langextract_extractions_json.pkl")
-media_path = Path("data/processed/media_cleaned.csv")
-chunks_path = Path("data/processed/media_has_chunk_cleaned.csv")
-tags_path = Path("data/processed/media_has_tags_cleaned.csv")
+extractions_path = Path("../../data/processed/langextract_extractions_json.pkl")
+media_path = Path("../../data/processed/media_cleaned.csv")
+chunks_path = Path("../../data/processed/media_has_chunk_cleaned.csv")
+tags_path = Path("../../data/processed/media_has_tags_cleaned.csv")
 
 with open(extractions_path, "rb") as f:
     extractions = pickle.load(f)
@@ -3512,7 +3512,7 @@ Finally, the constructed knowledge graph and its derived datasets are exported f
 #| label: kg-export-results
 #| code-summary: "Show export code"
 
-output_dir = Path("notebook/knowledge_graph")
+output_dir = Path("knowledge_graph")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 graph_path = output_dir / "knowledge_graph.pkl"
