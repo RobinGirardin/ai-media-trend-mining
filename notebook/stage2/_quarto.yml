@@ -13,7 +13,8 @@ book:
         - 01_data.qmd
     - part: "Part II: Classical Embeddings"
       chapters:
-        - 02_classical_embeddings.qmd
+        - 02_classical.qmd
+
     - part: "Part III: LLM Fine-Tuning"
       chapters:
         - 03_finetuning.qmd
