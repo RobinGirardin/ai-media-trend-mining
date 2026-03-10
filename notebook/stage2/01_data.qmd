@@ -1,0 +1,349 @@
+---
+title: "Data Preparation"
+execute:
+  eval: false
+---
+
+
+# Data Preparation
+
+This chapter prepares all datasets needed for Stage 2. It loads the cleaned outputs from Stage 1, re-applies tokenization and lemmatization (computed in-memory in Stage 1, not persisted), derives evaluation labels for both downstream tasks, and produces stratified
+train/test splits. All outputs are written to `data/processed/stage2/` so that subsequent chapters (`02_classical_embeddings.qmd`, `03_finetuning.qmd`, `04_evaluation.qmd`) can load them independently.
+
+**Downstream evaluation tasks**
+
+| Task | Labels | Source |
+|------|--------|--------|
+| Sentiment classification | negative / neutral / positive | `sentiment` column in `media_cleaned.csv` (already categorical) |
+| Topic classification | 20 BERTopic topics | `topic_model.topics_` from `bertopic_model` (Stage 1 fit assignments) |
+
+```{python}
+#| label: imports
+#| echo: false
+import ast
+import warnings
+from pathlib import Path
+
+import pandas as pd
+import spacy
+from nltk.stem import WordNetLemmatizer
+import nltk
+from sklearn.model_selection import train_test_split
+
+warnings.filterwarnings("ignore")
+nltk.download("wordnet", quiet=True)
+nltk.download("omw-1.4", quiet=True)
+
+SEED = 42
+STAGE1_DIR = Path("data/processed")
+STAGE2_DIR = Path("data/processed/stage2")
+STAGE2_DIR.mkdir(parents=True, exist_ok=True)
+```
+
+## Loading Stage 1 Data
+
+We load the three core tables produced by Stage 1 directly from `data/processed/`.
+
+- **`media_cleaned.csv`** — one row per article; includes `full_content`, `date`, `domain`, a categorical `sentiment` label (negative / neutral / positive) and a numeric `num_sentiment` score (−1 / 0 / +1) from the RoBERTa model in Stage 1.
+- **`media_has_chunk_cleaned.csv`** — one row per paragraph chunk; includes the categorical `sentiment` label (negative / neutral / positive) from the RoBERTa model.
+- **`media_has_tags_cleaned.csv`** — one row per tag–article pair.
+
+```{python}
+#| label: load-stage1
+#| echo: true
+
+media  = pd.read_csv(STAGE1_DIR / "media_cleaned.csv")
+chunks = pd.read_csv(STAGE1_DIR / "media_has_chunk_cleaned.csv")
+tags   = pd.read_csv(STAGE1_DIR / "media_has_tags_cleaned.csv")
+
+media["date"] = pd.to_datetime(media["date"])
+
+print(f"Articles : {len(media):,}")
+print(f"Chunks   : {len(chunks):,}")
+print(f"Tags     : {len(tags):,}")
+print()
+print("media columns  :", list(media.columns))
+print("chunks columns :", list(chunks.columns))
+```
+
+## Tokenization & Lemmatization
+
+Stage 1 computed tokens and lemmas in-memory but did not persist them. We re-apply the identical pipeline: spaCy `blank("en")` tokenizer followed by NLTK WordNet lemmatizer. Only alphabetic tokens are kept; stopwords, contraction remnants and single-character tokens are removed (except deliberate short forms like `ai`, `ml`).
+
+```{python}
+#| label: tokenizer-setup
+#| echo: true
+
+nlp = spacy.blank("en")
+
+CONTRACTION_REMNANTS = {"s", "t", "ve", "re", "ll", "d", "m"}
+KEEP_SHORT = {"ai", "ml", "us", "uk", "eu", "gpt", "llm"}
+stop_words = nlp.Defaults.stop_words
+lemmatizer = WordNetLemmatizer()
+
+
+def tokenize_and_lemmatize(text: str) -> list[str]:
+    """
+    Tokenize with spaCy blank('en'), remove stopwords and noise,
+    then lemmatize with WordNet — identical to the Stage 1 pipeline.
+    """
+    doc = nlp(str(text))
+    tokens = []
+    for tok in doc:
+        t = tok.text.lower()
+        if not tok.is_alpha:
+            continue
+        if len(t) <= 1 and t not in KEEP_SHORT:
+            continue
+        if t in CONTRACTION_REMNANTS:
+            continue
+        if t in stop_words:
+            continue
+        tokens.append(lemmatizer.lemmatize(t))
+    return tokens
+
+
+# Smoke-test
+_ex = "AI breakthroughs in generative models are reshaping industries."
+print("Input :", _ex)
+print("Output:", tokenize_and_lemmatize(_ex))
+```
+
+### Tokenize chunks (training corpus for Word2Vec / FastText)
+
+Word2Vec and FastText are trained on a flat list of token sequences. Every paragraph chunk counts as one sequence, giving ~436k training examples.
+
+```{python}
+#| label: tokenize-chunks
+#| echo: true
+
+chunks = chunks.dropna(subset=["chunked_content"]).reset_index(drop=True)
+chunks["tokens"] = chunks["chunked_content"].apply(tokenize_and_lemmatize)
+chunks = chunks[chunks["tokens"].apply(len) > 0].reset_index(drop=True)
+
+print(f"Chunks after tokenization : {len(chunks):,}")
+print(f"Mean tokens / chunk       : {chunks['tokens'].apply(len).mean():.1f}")
+print(f"Median tokens / chunk     : {chunks['tokens'].apply(len).median():.0f}")
+```
+
+### Tokenize articles (document-level evaluation corpus)
+
+```{python}
+#| label: tokenize-articles
+#| echo: true
+
+media = media.dropna(subset=["full_content"]).reset_index(drop=True)
+media["tokens"] = media["full_content"].apply(tokenize_and_lemmatize)
+
+print(f"Articles after tokenization : {len(media):,}")
+print(f"Mean tokens / article       : {media['tokens'].str.len().mean():.0f}")
+print(f"Median tokens / article     : {media['tokens'].str.len().median():.0f}")
+```
+
+## Extrinsic Label 1 — Sentiment
+
+The `sentiment` column in `media_cleaned.csv` contains a float aggregate score per article (mean of chunk-level scores mapped to −1 / 0 / +1 by the RoBERTa model in Stage 1). We convert it to a three-class label using fixed thresholds: scores below 0 are classified as *(partly) negative*, scores between 0 and 0.5 (inclusive) as *neutral*, and scores above 0.5 as *positive*.
+
+```{python}
+#| label: sentiment-labels
+#| echo: true
+
+def float_to_label(v: float) -> str:
+    if v < 0.0:  return "(partly) negative"
+    if v <= 0.5: return "neutral"
+    return "positive"
+
+media = media.drop(columns=["sentiment_label"], errors="ignore")
+media["sentiment_label"] = media["sentiment"].apply(float_to_label)
+
+print("Sentiment distribution (article level):")
+print(media["sentiment_label"].value_counts())
+print()
+print("Class balance:")
+print(media["sentiment_label"].value_counts(normalize=True).round(3))
+```
+
+## Extrinsic Label 2 — Topic
+
+The BERTopic model saved in Stage 1 retains the topic assignments from `fit_transform` in its `topics_` attribute. After loading the model we read them directly — no re-inference needed. Articles assigned to topic −1 (outliers) are excluded. We further limit the task to the **top 10 topics by article count**, as the remaining 10 topics have fewer than 100 articles each and are too small for reliable model training and evaluation. Articles outside the top 10 retain `NaN` for `topic_id` and `topic_label`.
+
+```{python}
+#| label: topic-labels
+#| echo: true
+#| warning: false
+
+import numpy as np
+from bertopic import BERTopic
+
+topic_model = BERTopic.load(str(STAGE1_DIR / "bertopic_model"))
+
+assert len(topic_model.topics_) == len(media), (
+    f"Length mismatch: {len(topic_model.topics_)} topics vs {len(media)} articles"
+)
+media["topic_id"] = topic_model.topics_
+
+TOPIC_LABELS = {
+    -1: "Outliers / Misc.",
+     0: "AI News & Tech (General)",
+     1: "Search, SEO & Marketing",
+     2: "Energy, Power & Robotics",
+     3: "ML Models & Training Data",
+     4: "Stocks & Market Ratings",
+     5: "US Politics & China Relations",
+     6: "Quantum Computing",
+     7: "AI in Media & Content",
+     8: "AI in Education (Students/Learning)",
+     9: "Consumer Tech (Apple/5G/Devices)",
+    10: "Defense & War (Ukraine/Russia)",
+    11: "Arts & Exhibitions (Museums/Film)",
+    12: "Gaming & Players",
+    13: "Earnings & Quarterly Reports",
+    14: "Facial Recognition & Surveillance",
+    15: "UK Government & Public Services (NHS)",
+    16: "Weather, Climate & Solar",
+    17: "KPMG / Corporate Communications",
+    18: "Agent Protocols (MCP/A2A/Servers)",
+    19: "Biodiversity & Wildlife Conservation",
+}
+
+media["topic_label"] = media["topic_id"].map(TOPIC_LABELS)
+
+# Keep top 10 topics; set outliers and small topics to NaN
+top10_topics = (
+    media[media["topic_id"] != -1]["topic_id"]
+    .value_counts()
+    .head(10)
+    .index
+    .tolist()
+)
+media.loc[~media["topic_id"].isin(top10_topics), ["topic_id", "topic_label"]] = np.nan
+
+print(f"Articles with a top-10 topic label : {media['topic_id'].notna().sum():,}")
+print(f"Articles without topic label       : {media['topic_id'].isna().sum():,}")
+print()
+print("Topic distribution (top 10):")
+print(media.loc[media["topic_id"].notna(), "topic_label"].value_counts().to_string())
+```
+
+## Train / Test Split
+
+A single stratified 80 / 20 split is produced on all articles using `sentiment_label` for stratification. The `topic_id` and `topic_label` columns are included for articles that have a top-10 topic assignment; the remaining articles have `NaN` in these columns. Each downstream chapter filters as needed.
+```{python}
+#| label: split
+#| echo: true
+
+train, test = train_test_split(
+    media[["media_id", "full_content", "tokens", "sentiment_label",
+           "topic_id", "topic_label", "date", "domain"]],
+    test_size=0.20,
+    random_state=SEED,
+    stratify=media["sentiment_label"],
+)
+train = train.reset_index(drop=True)
+test  = test.reset_index(drop=True)
+
+print(f"Train : {len(train):,}  |  Test : {len(test):,}")
+print()
+print("Sentiment distribution (train):")
+print(train["sentiment_label"].value_counts())
+print()
+print("Topic distribution (train, top 10 only):")
+print(train.dropna(subset=["topic_label"])["topic_label"].value_counts())
+```
+
+## LLM Dataset
+
+The training split is formatted as Alpaca-style instruction–completion pairs for supervised fine-tuning of small open-source models. The full article text is used; truncation to the model's context window is handled in `03_finetuning.qmd`.
+```{python}
+#| label: llm-dataset
+#| echo: true
+
+SYSTEM_PROMPT = (
+    "You are an AI media analyst. "
+    "Given a news article about artificial intelligence, "
+    "classify its overall sentiment as exactly one of: (partly) negative, neutral, positive."
+)
+
+def make_alpaca(row: pd.Series) -> str:
+    return (
+        f"### Instruction:\n{SYSTEM_PROMPT}\n\n"
+        f"### Input:\n{str(row['full_content'])}\n\n"
+        f"### Response:\n{row['sentiment_label']}"
+    )
+
+llm_train = train[["media_id", "full_content", "sentiment_label", "topic_id", "topic_label"]].copy()
+llm_test  = test[["media_id", "full_content", "sentiment_label", "topic_id", "topic_label"]].copy()
+llm_train["text"] = train.apply(make_alpaca, axis=1)
+llm_test["text"]  = test.apply(make_alpaca, axis=1)
+
+print(f"LLM train : {len(llm_train):,}  |  test : {len(llm_test):,}")
+print()
+print("Example (first 400 chars):")
+print(llm_train["text"].iloc[0][:400])
+```
+
+## Save Outputs
+
+All artefacts are written to `data/processed/stage2/`. Token lists are stored as string representations and must be parsed back with `ast.literal_eval` in downstream chapters.
+
+| File | Used by | Contents |
+|------|---------|----------|
+| `corpus_chunks.parquet` | `02_classical_embeddings.qmd` | Tokenized chunks for W2V/FastText training |
+| `train.parquet` | `02_classical_embeddings.qmd`, `04_evaluation.qmd` | 80% split, all labels |
+| `test.parquet` | `02_classical_embeddings.qmd`, `04_evaluation.qmd` | 20% split, all labels |
+| `llm_train.parquet` | `03_finetuning.qmd` | Alpaca-formatted fine-tuning data |
+| `llm_test.parquet` | `03_finetuning.qmd` | Alpaca test data |
+
+```{python}
+#| label: save-outputs
+#| echo: true
+
+def save(df: pd.DataFrame, path: Path) -> None:
+    out = df.copy()
+    if "tokens" in out.columns:
+        out["tokens"] = out["tokens"].apply(str)
+    out.to_parquet(path, index=False)
+    print(f"Saved {path.name:<38} ({len(out):,} rows)")
+
+save(chunks[["media_id", "chunked_content", "tokens", "sentiment"]],
+     STAGE2_DIR / "corpus_chunks.parquet")
+save(train, STAGE2_DIR / "train.parquet")
+save(test,  STAGE2_DIR / "test.parquet")
+
+llm_train.to_parquet(STAGE2_DIR / "llm_train.parquet", index=False)
+llm_test.to_parquet( STAGE2_DIR / "llm_test.parquet",  index=False)
+print(f"Saved llm_train/test.parquet               ({len(llm_train):,} / {len(llm_test):,} rows)")
+```
+
+```{python}
+#| label: verify-outputs
+#| echo: true
+
+print("── data/processed/stage2/ ──")
+for p in sorted(STAGE2_DIR.iterdir()):
+    print(f"  {p.name:<40} {p.stat().st_size / 1_048_576:5.1f} MB")
+```
+
+## How to Load Data in Other Chapters
+```python
+import ast
+import pandas as pd
+from pathlib import Path
+
+STAGE2_DIR = Path("data/processed/stage2")
+
+corpus = pd.read_parquet(STAGE2_DIR / "corpus_chunks.parquet")
+train  = pd.read_parquet(STAGE2_DIR / "train.parquet")
+test   = pd.read_parquet(STAGE2_DIR / "test.parquet")
+
+for df in [corpus, train, test]:
+    df["tokens"] = df["tokens"].apply(ast.literal_eval)
+
+# Sentiment task
+sent_train = train.dropna(subset=["sentiment_label"])
+sent_test  = test.dropna(subset=["sentiment_label"])
+
+# Topic task
+topic_train = train.dropna(subset=["topic_label"])
+topic_test  = test.dropna(subset=["topic_label"])
+```
