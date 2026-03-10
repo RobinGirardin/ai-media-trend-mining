@@ -47,6 +47,7 @@ fonttools==4.61.1
 fqdn==1.5.1
 frozenlist==1.8.0
 fsspec==2026.2.0
+gensim==4.4.0
 google-api-core==2.30.0
 google-auth==2.48.0
 google-cloud-core==2.5.0

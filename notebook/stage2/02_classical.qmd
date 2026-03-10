@@ -1,0 +1,376 @@
+---
+title: "Classical Embeddings"
+---
+
+# Classical Embeddings
+
+This chapter trains Word2Vec and FastText models on the tokenized article chunks from Stage 1, evaluates them intrinsically via nearest-neighbour inspection and UMAP visualisation, and extrinsically via sentiment and topic classification.
+
+```{python}
+#| label: imports
+#| echo: true
+
+import sys
+sys.setrecursionlimit(10000)
+
+import ast
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from gensim.models import Word2Vec, FastText
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, f1_score
+import umap
+import matplotlib.pyplot as plt
+
+warnings.filterwarnings("ignore")
+
+STAGE2_DIR = Path("data/processed/stage2")
+SEED = 42
+```
+
+```{python}
+#| label: load-data
+#| echo: true
+
+# Training corpus: tokenized paragraph chunks
+corpus = pd.read_parquet(STAGE2_DIR / "corpus_chunks.parquet")
+corpus["tokens"] = corpus["tokens"].apply(ast.literal_eval)
+
+# Evaluation splits: article-level with sentiment and topic labels
+train = pd.read_parquet(STAGE2_DIR / "train.parquet")
+test  = pd.read_parquet(STAGE2_DIR / "test.parquet")
+train["tokens"] = train["tokens"].apply(ast.literal_eval)
+test["tokens"]  = test["tokens"].apply(ast.literal_eval)
+
+# Token sequences for Word2Vec / FastText training
+sentences = corpus["tokens"].tolist()
+
+print(f"Training corpus : {len(sentences):,} sequences")
+print(f"Train split     : {len(train):,} articles")
+print(f"Test split      : {len(test):,} articles")
+```
+
+
+## Training
+
+We train both models on the full chunk corpus with identical hyperparameters: 300-dimensional vectors, skip-gram architecture (`sg=1`), window size 5, minimum word count 5.
+
+```{python}
+#| label: train-word2vec
+#| echo: true
+#| eval: false
+
+# Skip-gram Word2Vec (sg=1), 300 dimensions, window=5, min_count=5
+w2v_model = Word2Vec(
+    sentences=sentences,
+    vector_size=300,
+    window=5,
+    min_count=5,
+    sg=1,
+    seed=SEED,
+    workers=4,
+)
+
+w2v_model.save(str(STAGE2_DIR / "word2vec.model"))
+print(f"Word2Vec vocabulary size : {len(w2v_model.wv):,}")
+```
+
+```{python}
+#| label: train-fasttext
+#| echo: true
+#| eval: false
+
+# FastText with same hyperparameters - additionally handles OOV via subword n-grams
+ft_model = FastText(
+    sentences=sentences,
+    vector_size=300,
+    window=5,
+    min_count=5,
+    sg=1,
+    seed=SEED,
+    workers=4,
+)
+
+ft_model.save(str(STAGE2_DIR / "fasttext.model"))
+print(f"FastText vocabulary size : {len(ft_model.wv):,}")
+```
+
+```{python}
+#| label: load-models
+#| echo: true
+
+w2v_model = Word2Vec.load(str(STAGE2_DIR / "word2vec.model"))
+ft_model  = FastText.load(str(STAGE2_DIR / "fasttext.model"))
+
+print(f"Word2Vec vocabulary size : {len(w2v_model.wv):,}")
+print(f"FastText vocabulary size : {len(ft_model.wv):,}")
+```
+
+
+## Intrinsic Evaluation
+
+### Nearest Neighbours
+
+We inspect the 10 nearest neighbours for a set of AI-domain seed words to verify that the models have learned meaningful semantic relationships.
+
+```{python}
+#| label: nearest-neighbours
+#| echo: true
+
+SEED_WORDS = [
+    "openai", "deepseek", "transformer", "hallucination",
+    "finetune", "benchmark", "inference", "regulation",
+    "robotics", "quantum"
+]
+
+for word in SEED_WORDS:
+    print(f"\n── {word} ──")
+    for model_name, model in [("W2V", w2v_model), ("FT", ft_model)]:
+        if word in model.wv:
+            neighbours = [w for w, _ in model.wv.most_similar(word, topn=5)]
+            print(f"  {model_name}: {', '.join(neighbours)}")
+        else:
+            print(f"  {model_name}: OOV")
+```
+
+**Word2Vec** captures thematic and semantic relationships well. `openai` maps to `anthropic, altman, chatgpt, claude` - its closest competitors and associated persons. `deepseek` retrieves `kimi, qwq, doubao`, all Chinese AI models released in the same period. `hallucination` groups with `hallucinated, hallucinate, factually` and `regulation` with `legislation, ccpa, stricter` - both reflecting coherent domain-specific clusters. `benchmark` correctly retrieves established evaluation suites such as `humaneval` and `mmlu`.
+
+**FastText** also produces meaningful neighbours, but its results are strongly shaped by subword n-gram similarity. `hallucination` retrieves `hallucinatory, hallucinates` and `regulation` retrieves `overregulation, deregulation, regulate` - morphological variants that share the same stem. For rare or compound terms, FastText generalises well through subwords: `inference` maps to `minference, inferencing, inferentia`, reflecting both the concept and its technical derivatives.
+
+**Comparison:** The two models reflect their architectural differences clearly. Word2Vec excels at capturing thematic proximity - grouping entities, products and concepts that co-occur in similar contexts. FastText complements this with morphological awareness, producing richer neighbourhoods for inflected and compound forms. For a technical domain like AI media, where new compound terms and brand names appear frequently, FastText's subword generalisation is a practical advantage - particularly for out-of-vocabulary words, which Word2Vec cannot handle at all.
+
+
+### UMAP Visualisation
+
+We project word vectors into 2D using UMAP to inspect the global structure of the learned embedding space. The first plot shows the top 2,000 most frequent vocabulary items to give an overview of how the model organises the full corpus vocabulary. The second plot focuses on the seed words from the nearest-neighbour analysis and their closest neighbours, making thematic clusters directly visible.
+
+```{python}
+#| label: umap-global
+#| echo: true
+
+# Top 2000 words by frequency
+vocab_words = [w for w in w2v_model.wv.index_to_key[:2000]]
+w2v_vectors = np.array([w2v_model.wv[w] for w in vocab_words])
+
+reducer = umap.UMAP(n_components=2, random_state=SEED, n_neighbors=15, min_dist=0.1)
+embedding_2d = reducer.fit_transform(w2v_vectors)
+
+fig, ax = plt.subplots(figsize=(14, 10))
+ax.scatter(embedding_2d[:, 0], embedding_2d[:, 1], s=5, alpha=0.5)
+
+for i, word in enumerate(vocab_words[:100]):
+    ax.annotate(word, embedding_2d[i], fontsize=10, alpha=0.8)
+
+for spine in ax.spines.values():
+    spine.set_visible(True)
+    spine.set_linewidth(0.8)
+    spine.set_color("black")
+
+ax.set_title("Word2Vec - UMAP projection (top 2,000 words)")
+ax.set_xticks([])
+ax.set_yticks([])
+plt.tight_layout()
+plt.show()
+```
+
+The global projection reveals a broadly distributed vocabulary with recognisable thematic regions: financial and business terms (`stock`, `market`, `investment`) cluster to the right, while technical AI terms (`model`, `learning`, `machine`, `platform`) form a denser region to the left. However, many generic words remain visible in the centre, reflecting their broad co-occurrence across all topics.
+
+To obtain a cleaner view of the domain-specific structure, we restrict the second plot to the seed words and their five nearest neighbours as identified above.
+
+```{python}
+#| label: umap-focused
+#| echo: true
+
+# Collect seed words and their W2V nearest neighbours
+focused_words = set(SEED_WORDS)
+for word in SEED_WORDS:
+    if word in w2v_model.wv:
+        neighbours = [w for w, _ in w2v_model.wv.most_similar(word, topn=5)]
+        focused_words.update(neighbours)
+
+focused_words = [w for w in focused_words if w in w2v_model.wv]
+focused_vectors = np.array([w2v_model.wv[w] for w in focused_words])
+
+reducer_focused = umap.UMAP(n_components=2, random_state=SEED, n_neighbors=5, min_dist=0.1)
+embedding_focused = reducer_focused.fit_transform(focused_vectors)
+
+colors = ["#e63946" if w in SEED_WORDS else "#457b9d" for w in focused_words]
+
+fig, ax = plt.subplots(figsize=(12, 8))
+ax.scatter(embedding_focused[:, 0], embedding_focused[:, 1], c=colors, s=40, alpha=0.8)
+
+for i, word in enumerate(focused_words):
+    ax.annotate(word, embedding_focused[i], fontsize=11, alpha=0.9)
+
+for spine in ax.spines.values():
+    spine.set_visible(True)
+    spine.set_linewidth(0.8)
+    spine.set_color("black")
+
+ax.set_title("Word2Vec - UMAP projection (seed words and nearest neighbours)")
+ax.set_xticks([])
+ax.set_yticks([])
+plt.tight_layout()
+plt.show()
+```
+
+The focused projection confirms the thematic clusters observed in the nearest-neighbour analysis. Seed words (red) are consistently surrounded by their domain-relevant neighbours (blue), with clear separation between clusters such as AI models and companies, hardware and inference, and regulatory vocabulary.
+
+
+## Extrinsic Evaluation
+
+We evaluate both models on two downstream classification tasks using a simple pipeline: document embeddings are computed by mean-pooling the word vectors of all tokens in an article, then fed into a Logistic Regression classifier. We report Macro-F1 to account for class imbalance.
+
+```{python}
+#| label: mean-pooling
+#| echo: true
+
+def mean_pooling(tokens: list, model) -> np.ndarray:
+    """Average word vectors for all in-vocabulary tokens in a document."""
+    vectors = [model.wv[t] for t in tokens if t in model.wv]
+    if vectors:
+        return np.mean(vectors, axis=0)
+    return np.zeros(model.vector_size)
+
+# Compute document embeddings for train and test
+X_train_w2v = np.array([mean_pooling(t, w2v_model) for t in train["tokens"]])
+X_test_w2v  = np.array([mean_pooling(t, w2v_model) for t in test["tokens"]])
+
+X_train_ft  = np.array([mean_pooling(t, ft_model) for t in train["tokens"]])
+X_test_ft   = np.array([mean_pooling(t, ft_model) for t in test["tokens"]])
+
+print(f"W2V train embeddings : {X_train_w2v.shape}")
+print(f"FT  train embeddings : {X_train_ft.shape}")
+```
+
+### Sentiment Classification
+```{python}
+#| label: extrinsic-sentiment
+#| echo: true
+
+# Labels
+y_train_sent = train["sentiment_label"]
+y_test_sent  = test["sentiment_label"]
+
+results = {}
+
+for name, X_tr, X_te in [
+    ("Word2Vec", X_train_w2v, X_test_w2v),
+    ("FastText", X_train_ft,  X_test_ft),
+]:
+    clf = LogisticRegression(max_iter=1000, random_state=SEED)
+    clf.fit(X_tr, y_train_sent)
+    y_pred = clf.predict(X_te)
+    macro_f1 = f1_score(y_test_sent, y_pred, average="macro")
+    results[name] = macro_f1
+    print(f"── {name} ──")
+    print(classification_report(y_test_sent, y_pred))
+```
+
+Both models achieve a Macro-F1 of 0.75 (Word2Vec) and 0.74 (FastText) on the sentiment task - solid results for a mean-pooling baseline with a simple linear classifier. The two models perform near-identically, suggesting that FastText's subword generalisation offers little additional signal when averaging over long documents. The class `(partly) negative` shows the lowest recall (~0.60) across both models, reflecting its smaller support and the often subtle framing of negative sentiment in AI media coverage. `neutral` is the best-recognised class, consistent with its dominance in the dataset.
+
+### Topic Classification
+```{python}
+#| label: extrinsic-topic
+#| echo: true
+
+# Filter to articles with a top-10 topic label
+train_topic = train.dropna(subset=["topic_label"]).reset_index(drop=True)
+test_topic  = test.dropna(subset=["topic_label"]).reset_index(drop=True)
+
+X_train_w2v_t = np.array([mean_pooling(t, w2v_model) for t in train_topic["tokens"]])
+X_test_w2v_t  = np.array([mean_pooling(t, w2v_model) for t in test_topic["tokens"]])
+X_train_ft_t  = np.array([mean_pooling(t, ft_model)  for t in train_topic["tokens"]])
+X_test_ft_t   = np.array([mean_pooling(t, ft_model)  for t in test_topic["tokens"]])
+
+y_train_topic = train_topic["topic_label"]
+y_test_topic  = test_topic["topic_label"]
+
+for name, X_tr, X_te in [
+    ("Word2Vec", X_train_w2v_t, X_test_w2v_t),
+    ("FastText", X_train_ft_t,  X_test_ft_t),
+]:
+    clf = LogisticRegression(max_iter=1000, random_state=SEED)
+    clf.fit(X_tr, y_train_topic)
+    y_pred = clf.predict(X_te)
+    macro_f1 = f1_score(y_test_topic, y_pred, average="macro")
+    results[f"{name} (topic)"] = macro_f1
+    print(f"── {name} ──")
+    print(classification_report(y_test_topic, y_pred))
+```
+
+Topic classification yields stronger results, with Macro-F1 of 0.78 (Word2Vec) and 0.77 (FastText). `Quantum Computing` stands out with F1 scores of 0.89 and 0.90 respectively - its highly specific and self-contained vocabulary makes it easy to separate from other topics. `Search, SEO & Marketing`, `Energy, Power & Robotics` and `Stocks & Market Ratings` are also well-recognised. The weakest classes are `AI in Education` (F1 ~0.58) and `AI in Media & Content` (F1 ~0.59), both of which overlap thematically with the dominant `AI News & Tech (General)` class, leading to frequent misclassification.
+
+The summary confirms the pattern observed across both tasks. Word2Vec consistently outperforms FastText by a small margin, and both models perform better on topic classification (0.77–0.78) than on sentiment classification (0.74–0.75). The topic task benefits from more distinctive domain vocabulary, while sentiment requires capturing subtler linguistic signals that mean-pooling over long documents tends to smooth out.
+
+### MiniLM Baseline
+
+As a reference point, we evaluate the pre-computed MiniLM sentence embeddings from Stage 1 on the same two classification tasks. These embeddings were produced by `all-MiniLM-L6-v2` (SentenceTransformers), a compact Sentence-BERT model that directly encodes full documents into 384-dimensional vectors. Unlike Word2Vec and FastText, MiniLM produces contextualised document-level embeddings - comparing its performance against the mean-pooled word vectors gives an indication of how much is gained by moving from static to contextualised representations.
+
+Since `media_id` values are not contiguous after the cleaning steps in Stage 1, we cannot use them directly as row indices into `embeddings.npy`. We reconstruct the mapping by loading the index from `media_cleaned.csv`, which preserves the original row order of the embedding matrix.
+
+```{python}
+#| label: minilm-load
+#| echo: true
+
+# Load MiniLM embeddings from Stage 1
+embeddings = np.load("data/processed/embeddings.npy")
+
+# Build mapping: media_id -> embedding row index
+media_index = pd.read_csv("data/processed/media_cleaned.csv", usecols=["media_id"])
+media_id_to_idx = {mid: idx for idx, mid in enumerate(media_index["media_id"])}
+
+# Align to train/test splits via mapping
+X_train_mini = embeddings[[media_id_to_idx[mid] for mid in train["media_id"]]]
+X_test_mini  = embeddings[[media_id_to_idx[mid] for mid in test["media_id"]]]
+```
+
+```{python}
+#| label: minilm-baseline
+#| echo: true
+
+# Sentiment
+clf = LogisticRegression(max_iter=1000, random_state=SEED)
+clf.fit(X_train_mini, y_train_sent)
+y_pred = clf.predict(X_test_mini)
+results["MiniLM (sentiment)"] = f1_score(y_test_sent, y_pred, average="macro")
+print("── MiniLM Sentiment ──")
+print(classification_report(y_test_sent, y_pred))
+
+# Topic
+X_train_mini_t = embeddings[[media_id_to_idx[mid] for mid in train_topic["media_id"]]]
+X_test_mini_t  = embeddings[[media_id_to_idx[mid] for mid in test_topic["media_id"]]]
+clf.fit(X_train_mini_t, y_train_topic)
+y_pred = clf.predict(X_test_mini_t)
+results["MiniLM (topic)"] = f1_score(y_test_topic, y_pred, average="macro")
+print("── MiniLM Topic ──")
+print(classification_report(y_test_topic, y_pred))
+```
+
+```{python}
+#| label: summary-table-final
+#| echo: true
+    "Task": ["Sentiment", "Sentiment", "Sentiment", "Topic", "Topic", "Topic"],
+    "Macro-F1": [0.752, 0.745, 0.650, 0.776, 0.773, 0.870],
+})
+
+summary["Macro-F1"] = summary["Macro-F1"].map("{:.3f}".format)
+
+summary.style \
+    .set_properties(**{"text-align": "center"}) \
+    .set_table_styles([
+        {"selector": "th", "props": [("text-align", "center"), ("background-color", "#f0f0f0")]}
+    ]) \
+    .apply(lambda x: ["background-color: #fff3cd" if x["Model"] == "MiniLM*" else "" for _ in x], axis=1)
+```
+*\* MiniLM topic result is invalid - labels were derived from MiniLM embeddings in Stage 1.*
+
+
+The MiniLM results reveal an interesting split between the two tasks.
+
+**For sentiment classification, MiniLM underperforms** both classical models with a Macro-F1 of 0.65, compared to 0.75 (Word2Vec) and 0.74 (FastText). This is a genuine result: the MiniLM embeddings, trained on general-purpose sentence similarity, appear to capture sentiment-relevant signals less effectively than Word2Vec and FastText trained directly on this domain-specific corpus. The classical models have learned domain-specific affective vocabulary from the AI media text, giving them a clear advantage on this task.
+
+**For topic classification**, MiniLM achieves a Macro-F1 of 0.87 - substantially higher than Word2Vec (0.78) and FastText (0.77). However, this result is **invalid as a comparison**: the BERTopic topic assignments used as ground truth labels were themselves derived from MiniLM embeddings in Stage 1. The classifier is recovering its own latent structure rather than demonstrating generalisation, making the score meaningless as a benchmark. The topic classification scores of Word2Vec (0.78) and FastText (0.77) are the only valid results for this task, as these models learned the topic structure independently from raw token co-occurrence.
