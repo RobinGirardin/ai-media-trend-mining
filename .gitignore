@@ -21,6 +21,7 @@ notebook/*_files/
 
 sandbox/
 data/processed/*clean.parquet
+data/processed/stage2/
 *.js
 *.css
 *.woff
