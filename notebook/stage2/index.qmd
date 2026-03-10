@@ -1,0 +1,22 @@
+# Preface {.unnumbered}
+
+This book documents Stage 2 of the Computational Language Technologies project at HSLU, building on the data pipeline and exploratory analysis completed in Stage 1.
+
+## Dataset
+
+The AI Media Dataset (Kaggle) consists of 16,317 news articles covering artificial intelligence topics, collected between September 2024 and August 2025.
+
+## Stage 2 Overview
+
+Stage 1 produced cleaned article and chunk data, sentiment labels, BERTopic topic assignments, and a knowledge graph. Stage 2 focuses on text embeddings and their evaluation:
+
+- **Part I – Data Preparation:** Re-tokenization, train/test splits for sentiment and topic classification, and preparation of the LLM fine-tuning dataset.
+- **Part II – Classical Embeddings:** Training and intrinsic evaluation of Word2Vec and FastText models on the article corpus.
+- **Part III – LLM Fine-Tuning:** Supervised fine-tuning of a small open-source language model for sentiment classification.
+- **Part IV – Evaluation:** Extrinsic comparison of all embedding approaches on sentiment and topic classification tasks.
+
+## Team
+
+Sever Alin, Girardin Robin & Huber Daniel
+
+*Course: Computational Language Technologies, HSLU Applied Information and Data Science*

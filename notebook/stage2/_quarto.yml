@@ -1,0 +1,33 @@
+project:
+  type: book
+
+book:
+  title: "Computational Language Technologies - Stage 2"
+  subtitle: "Classical and Neural Text Embeddings for AI Media Analysis"
+  author: "Sever Alin, Girardin Robin & Huber Daniel"
+  date: today
+  chapters:
+    - index.qmd
+    - part: "Part I: Data Preparation"
+      chapters:
+        - 01_data.qmd
+    - part: "Part II: Classical Embeddings"
+      chapters:
+        - 02_classical_embeddings.qmd
+    - part: "Part III: LLM Fine-Tuning"
+      chapters:
+        - 03_finetuning.qmd
+    - part: "Part IV: Evaluation"
+      chapters:
+        - 04_evaluation.qmd
+
+format:
+  html:
+    theme:
+      - cosmo
+      - brand
+    code-fold: true
+    code-summary: "Show/Hide code"
+    toc: true
+    toc-depth: 3
+    number-sections: true
