@@ -251,6 +251,31 @@ print(f"W2V train embeddings : {X_train_w2v.shape}")
 print(f"FT  train embeddings : {X_train_ft.shape}")
 ```
 
+### Cross Validation
+
+Before evaluating on the test set, we verify the stability of both models using 5-fold cross validation on the training data. This gives a more robust estimate of generalisation performance and confirms that the test results are not an artefact of a particular train/test split.
+
+```{python}
+#| label: cross-validation
+#| echo: true
+
+from sklearn.model_selection import cross_val_score
+
+for task_name, y_tr in [("Sentiment", y_train_sent), ("Topic", y_train_topic)]:
+    print(f"── {task_name} ──")
+    for name, X_tr in [("Word2Vec", X_train_w2v), ("FastText", X_train_ft)]:
+        if task_name == "Topic":
+            X_tr = X_train_w2v_t if name == "Word2Vec" else X_train_ft_t
+        scores = cross_val_score(
+            LogisticRegression(max_iter=1000, random_state=SEED),
+            X_tr, y_tr, cv=5, scoring="f1_macro", n_jobs=-1
+        )
+        print(f"  {name}: {scores.mean():.3f} ± {scores.std():.3f}")
+    print()
+```
+
+Cross validation confirms that both models are stable across different data splits. The low standard deviation (±0.01 for sentiment, ±0.02 for topic) indicates that the test set results are reliable and not an artefact of a particular split.
+
 ### Sentiment Classification
 ```{python}
 #| label: extrinsic-sentiment
@@ -277,7 +302,37 @@ for name, X_tr, X_te in [
 
 Both models achieve a Macro-F1 of 0.75 (Word2Vec) and 0.74 (FastText) on the sentiment task - solid results for a mean-pooling baseline with a simple linear classifier. The two models perform near-identically, suggesting that FastText's subword generalisation offers little additional signal when averaging over long documents. The class `(partly) negative` shows the lowest recall (~0.60) across both models, reflecting its smaller support and the often subtle framing of negative sentiment in AI media coverage. `neutral` is the best-recognised class, consistent with its dominance in the dataset.
 
+The cross-validated Macro-F1 scores align closely with the final test results, with Word2Vec marginally ahead of FastText on both tasks.
+
+```{python}
+#| label: confusion-sentiment
+#| echo: true
+
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+for ax, (name, X_tr, X_te) in zip(axes, [
+    ("Word2Vec", X_train_w2v, X_test_w2v),
+    ("FastText", X_train_ft,  X_test_ft),
+]):
+    clf = LogisticRegression(max_iter=1000, random_state=SEED)
+    clf.fit(X_tr, y_train_sent)
+    y_pred = clf.predict(X_te)
+    cm = confusion_matrix(y_test_sent, y_pred, labels=clf.classes_)
+    disp = ConfusionMatrixDisplay(cm, display_labels=clf.classes_)
+    disp.plot(ax=ax, colorbar=False, xticks_rotation=45)
+    ax.set_title(name)
+
+plt.suptitle("Confusion Matrix — Sentiment Classification")
+plt.tight_layout()
+plt.show()
+```
+
+The confusion matrix confirms the classification report findings. Both models behave near-identically. The dominant error pattern is misclassification into `neutral` - articles from both `(partly) negative` and `positive` classes are frequently predicted as `neutral`, reflecting the subtle sentiment signals in AI media coverage and the class imbalance favouring `neutral` in the training data.
+
 ### Topic Classification
+
 ```{python}
 #| label: extrinsic-topic
 #| echo: true
@@ -309,7 +364,34 @@ for name, X_tr, X_te in [
 
 Topic classification yields stronger results, with Macro-F1 of 0.78 (Word2Vec) and 0.77 (FastText). `Quantum Computing` stands out with F1 scores of 0.89 and 0.90 respectively - its highly specific and self-contained vocabulary makes it easy to separate from other topics. `Search, SEO & Marketing`, `Energy, Power & Robotics` and `Stocks & Market Ratings` are also well-recognised. The weakest classes are `AI in Education` (F1 ~0.58) and `AI in Media & Content` (F1 ~0.59), both of which overlap thematically with the dominant `AI News & Tech (General)` class, leading to frequent misclassification.
 
-The summary confirms the pattern observed across both tasks. Word2Vec consistently outperforms FastText by a small margin, and both models perform better on topic classification (0.77–0.78) than on sentiment classification (0.74–0.75). The topic task benefits from more distinctive domain vocabulary, while sentiment requires capturing subtler linguistic signals that mean-pooling over long documents tends to smooth out.
+The cross-validated Macro-F1 scores (W2V: 0.789 ± 0.024, FT: 0.784 ± 0.023) confirm the stability of these results.
+
+```{python}
+#| label: confusion-topic
+#| echo: true
+
+fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+
+for ax, (name, X_tr, X_te) in zip(axes, [
+    ("Word2Vec", X_train_w2v_t, X_test_w2v_t),
+    ("FastText", X_train_ft_t,  X_test_ft_t),
+]):
+    clf = LogisticRegression(max_iter=1000, random_state=SEED)
+    clf.fit(X_tr, y_train_topic)
+    y_pred = clf.predict(X_te)
+    cm = confusion_matrix(y_test_topic, y_pred, labels=clf.classes_)
+    disp = ConfusionMatrixDisplay(cm, display_labels=clf.classes_)
+    disp.plot(ax=ax, colorbar=False, xticks_rotation=45)
+    ax.set_title(name)
+
+plt.suptitle("Confusion Matrix — Topic Classification")
+plt.tight_layout()
+plt.show()
+```
+
+The topic confusion matrix reveals a clear systematic error: the vast majority of misclassifications end up in `AI News & Tech (General)`, the dominant catch-all topic. This is expected - articles that touch on general AI developments are hard to distinguish from topic-specific articles that also mention broader AI context. The most affected classes are `AI in Education` (~40% misclassified) and `ML Models & Training Data` (~18% misclassified), both of which share vocabulary with the general AI topic. Specialised topics like `Quantum Computing`, `Search, SEO & Marketing` and `Stocks & Market Ratings` are much more robust, with clear diagonal dominance and few off-diagonal errors.
+
+The summary confirms the pattern observed across both tasks. Word2Vec consistently outperforms FastText by a small margin, and both models perform better on topic classification (0.77–0.78) than on sentiment classification (0.74–0.75). The topic task benefits from more distinctive domain vocabulary, while sentiment requires capturing subtler linguistic signals that mean-pooling over long documents tends to smooth out. The confusion matrices reveal the dominant error patterns: for sentiment, both models struggle to distinguish `(partly) negative` and `positive` from `neutral`, reflecting class imbalance and subtle affective language. For topic classification, misclassifications are almost exclusively absorbed by `AI News & Tech (General)`, the catch-all topic that shares vocabulary with all other classes.
 
 ### MiniLM Baseline
 
