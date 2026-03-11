@@ -179,30 +179,21 @@ peft_config = LoraConfig(
 )
 ```
 
-## Build a small debug sample
+## Prepare datasets
 
-This block creates a small train and test subset for the first Colab run. The goal of the first run is not final quality, but simply to verify that loading, training, and inference work end to end.
+This block prepares the full training and test datasets for fine-tuning and evaluation. The `text` column contains the Alpaca-formatted instruction, the `sentiment_label` column contains the gold label used for evaluation after inference.
 
 ```{python}
-#| label: debug-sample
+#| label: prepare-datasets
 #| echo: true
 
-train_df_debug = train_df.sample(n=100, random_state=SEED).copy()
-test_df_debug = test_df.sample(n=20, random_state=SEED).copy()
-
-train_dataset = Dataset.from_pandas(
-    train_df_debug[[TEXT_COLUMN]],
-    preserve_index=False
-)
-test_dataset = Dataset.from_pandas(
-    test_df_debug[[TEXT_COLUMN, TARGET_COLUMN]],
-    preserve_index=False
-)
+train_dataset = Dataset.from_pandas(train_df[[TEXT_COLUMN]], preserve_index=False)
+test_dataset = Dataset.from_pandas(test_df[[TEXT_COLUMN, TARGET_COLUMN]], preserve_index=False)
 ```
 
 ## Define training arguments
 
-This block sets small training parameters for the initial test run. The batch size is intentionally small to fit Colab GPU memory, and we train only for one epoch to validate the pipeline quickly.
+This block configures the training hyperparameters. The batch size is kept small to fit Colab GPU memory; gradient accumulation compensates for the small batch size.
 
 ```{python}
 #| label: training-args
@@ -212,12 +203,13 @@ training_args = TrainingArguments(
     output_dir="outputs/tinyllama-sentiment",
     per_device_train_batch_size=2,
     gradient_accumulation_steps=4,
-    num_train_epochs=1,
+    num_train_epochs=3,
     learning_rate=2e-4,
     logging_steps=10,
     save_strategy="no",
     report_to="none",
-    fp16=True,
+    bf16=True,
+    fp16=False,
 )
 ```
 
@@ -231,17 +223,16 @@ This block combines the base model, LoRA configuration, training dataset, and tr
 
 trainer = SFTTrainer(
     model=model,
-    tokenizer=tokenizer,
     train_dataset=train_dataset,
     peft_config=peft_config,
     args=training_args,
-    dataset_text_field=TEXT_COLUMN,
+    processing_class=tokenizer,
 )
 ```
 
-## Run the first training pass
+## Run training
 
-This block starts fine-tuning. In the first Colab test, it should only confirm that the pipeline runs successfully on the small debug sample.
+This block starts fine-tuning on the full training set for 3 epochs.
 
 ```{python}
 #| label: run-training
@@ -250,9 +241,23 @@ This block starts fine-tuning. In the first Colab test, it should only confirm t
 trainer.train()
 ```
 
-## Generate predictions on the debug test set
+## Generate predictions
 
-This block applies the fine-tuned model to a few held-out examples. We use only a small number of prompts and keep the generation short because the target output is just one sentiment label.
+This block applies the fine-tuned model to the full test set. Each article is truncated to 500 words to ensure the `### Response:` marker fits within the model's context window.
+
+```{python}
+#| label: make-inference-prompt
+#| echo: true
+
+def make_inference_prompt(full_text: str) -> str:
+    """Strip the gold label — keep only the prompt part up to ### Response:"""
+    parts = full_text.split("### Response:")
+    instruction = parts[0]
+    words = instruction.split()
+    if len(words) > 500:
+        instruction = " ".join(words[:500]) + "\n\n"
+    return instruction + "### Response:"
+```
 
 ```{python}
 #| label: generate-predictions
@@ -262,14 +267,12 @@ generator = pipeline(
     "text-generation",
     model=trainer.model,
     tokenizer=tokenizer,
-    max_new_tokens=8,
+    max_new_tokens=12,
     return_full_text=False,
 )
 
-sample_prompts = test_df_debug[TEXT_COLUMN].head(5).tolist()
+sample_prompts = [make_inference_prompt(t) for t in test_df[TEXT_COLUMN].tolist()]
 sample_outputs = generator(sample_prompts)
-
-sample_outputs
 ```
 
 ## Extract labels from model outputs
@@ -282,7 +285,6 @@ This block maps the generated text back to one of the three sentiment labels. Be
 
 def extract_label(generated_text: str) -> str:
     text = generated_text.strip().lower()
-
     if "(partly) negative" in text:
         return "(partly) negative"
     elif "neutral" in text:
@@ -293,7 +295,7 @@ def extract_label(generated_text: str) -> str:
         return "unknown"
 
 pred_labels = []
-true_labels = test_df_debug[TARGET_COLUMN].head(5).tolist()
+true_labels = test_df[TARGET_COLUMN].tolist()
 
 for output in sample_outputs:
     generated_text = output[0]["generated_text"]
@@ -317,10 +319,11 @@ y_pred = [pred_labels[i] for i in valid_idx]
 
 macro_f1 = f1_score(y_true, y_pred, labels=LABELS, average="macro")
 
+print(f"Valid predictions: {len(valid_idx)} / {len(pred_labels)}")
 print("Macro-F1:", macro_f1)
 print(classification_report(y_true, y_pred, labels=LABELS))
 ```
 
 ## Notes
 
-For the first Colab test, this notebook should be run on the small debug sample. After the pipeline works end to end, the same setup can be scaled to the full training and test data.
+Training runs on the full dataset (~13k articles) for 3 epochs using QLoRA (4-bit quantization, LoRA r=16). Inference truncates article text to 500 words to ensure the `### Response:` marker fits within TinyLlama's 2048-token context window. The Macro-F1 score is directly comparable to the classical embedding baselines in Chapter 2.
