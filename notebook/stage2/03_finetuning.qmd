@@ -101,6 +101,14 @@ test_df = pd.read_parquet(test_path)
 train_df.shape, test_df.shape
 ```
 
+```{python}
+#| label: recode-labels
+#| echo: true
+
+train_df["sentiment_label"] = train_df["sentiment_label"].str.replace("(partly) negative", "negative")
+test_df["sentiment_label"] = test_df["sentiment_label"].str.replace("(partly) negative", "negative")
+```
+
 ## Inspect the data
 
 This block shows a few examples of the prompt text and the target sentiment label. It verifies that the dataset is already in instruction format and ready for supervised fine-tuning.
@@ -120,7 +128,7 @@ This block defines the label set, the input and target columns, and the selected
 #| label: define-labels
 #| echo: true
 
-LABELS = ["(partly) negative", "neutral", "positive"]
+LABELS = ["negative", "neutral", "positive"]
 TARGET_COLUMN = "sentiment_label"
 TEXT_COLUMN = "text"
 MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
@@ -285,8 +293,8 @@ This block maps the generated text back to one of the three sentiment labels. Be
 
 def extract_label(generated_text: str) -> str:
     text = generated_text.strip().lower()
-    if "(partly) negative" in text:
-        return "(partly) negative"
+    if "negative" in text:
+        return "negative"
     elif "neutral" in text:
         return "neutral"
     elif "positive" in text:
