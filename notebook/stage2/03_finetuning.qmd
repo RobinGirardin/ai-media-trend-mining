@@ -1,0 +1,326 @@
+---
+title: "03 Fine-Tuning"
+execute:
+  eval: false
+---
+
+# Fine-Tuning TinyLlama for Sentiment Classification
+
+This chapter documents the fine-tuning setup for TinyLlama on the sentiment task. Code execution is disabled in Quarto because training will be run in Colab, not during book rendering.
+
+## Install dependencies
+
+This block installs the libraries needed for QLoRA fine-tuning in Colab. We use `transformers` for the base model, `peft` for LoRA adapters, `trl` for supervised fine-tuning, and `bitsandbytes` for 4-bit quantization.
+
+```{python}
+#| label: install-dependencies
+#| echo: true
+
+!pip install -q transformers peft trl bitsandbytes accelerate datasets pyarrow
+```
+
+## Import packages
+
+This block imports the core libraries for loading data, configuring the model, fine-tuning with QLoRA, and evaluating the predictions.
+
+```{python}
+#| label: imports
+#| echo: true
+
+import pandas as pd
+import numpy as np
+import torch
+
+from pathlib import Path
+from datasets import Dataset
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    BitsAndBytesConfig,
+    TrainingArguments,
+    pipeline,
+)
+from peft import LoraConfig
+from trl import SFTTrainer
+
+from sklearn.metrics import f1_score, classification_report
+```
+
+## Local paths for Positron / Quarto
+
+This block resolves the repository root and constructs local file paths. It is useful when writing and documenting the notebook in Positron before converting it to a Colab notebook.
+
+```{python}
+#| label: paths-and-config
+#| echo: true
+
+_cwd = Path.cwd()
+REPO_ROOT = _cwd if (_cwd / "data").exists() else _cwd.parents[1]
+STAGE2_DIR = REPO_ROOT / "data/processed/stage2"
+
+SEED = 42
+
+train_path = STAGE2_DIR / "llm_train.parquet"
+test_path = STAGE2_DIR / "llm_test.parquet"
+```
+
+For usage in **Positron/Quarto**, use the next block. For **Google Colab**, use the Colab block further below instead.
+
+## Load data locally
+
+This block loads the train and test files from the local repository structure. It is only used in the local Quarto / Positron workflow.
+
+```{python}
+#| label: load-data
+#| echo: true
+
+train_df = pd.read_parquet(train_path)
+test_df = pd.read_parquet(test_path)
+
+train_df.shape, test_df.shape
+```
+
+## Alternative: load data in Colab
+
+This alternative block mounts Google Drive and loads the train and test parquet files from the shared Colab folder. Use this block in Colab instead of the local path/loading blocks above.
+
+```{python}
+#| label: colab-drive-and-load-data
+#| echo: true
+
+from google.colab import drive
+
+drive.mount('/content/drive')
+
+train_path = "/content/drive/MyDrive/CLT/stage2/llm_train.parquet"
+test_path = "/content/drive/MyDrive/CLT/stage2/llm_test.parquet"
+
+train_df = pd.read_parquet(train_path)
+test_df = pd.read_parquet(test_path)
+
+train_df.shape, test_df.shape
+```
+
+## Inspect the data
+
+This block shows a few examples of the prompt text and the target sentiment label. It verifies that the dataset is already in instruction format and ready for supervised fine-tuning.
+
+```{python}
+#| label: inspect-data
+#| echo: true
+
+train_df[["text", "sentiment_label"]].head(3)
+```
+
+## Define labels and model name
+
+This block defines the label set, the input and target columns, and the selected base model. Keeping these settings in one place makes the notebook easier to adjust later.
+
+```{python}
+#| label: define-labels
+#| echo: true
+
+LABELS = ["(partly) negative", "neutral", "positive"]
+TARGET_COLUMN = "sentiment_label"
+TEXT_COLUMN = "text"
+MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+```
+
+## Configure 4-bit quantization
+
+This block sets up the quantization configuration for QLoRA. We use 4-bit loading to reduce GPU memory usage, which is important for running TinyLlama efficiently on Colab Pro.
+
+```{python}
+#| label: quantization-config
+#| echo: true
+
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.float16,
+    bnb_4bit_use_double_quant=True,
+)
+```
+
+## Load tokenizer and model
+
+This block loads the tokenizer and the quantized base model. If the tokenizer has no padding token, we reuse the EOS token so batching works correctly.
+
+```{python}
+#| label: load-tokenizer-and-model
+#| echo: true
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_NAME,
+    quantization_config=bnb_config,
+    device_map="auto",
+)
+```
+
+## Configure LoRA adapters
+
+This block defines the LoRA setup. The chosen values are conservative starter settings: small enough for a first Colab test, but still standard for parameter-efficient fine-tuning.
+
+```{python}
+#| label: lora-config
+#| echo: true
+
+peft_config = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM",
+)
+```
+
+## Build a small debug sample
+
+This block creates a small train and test subset for the first Colab run. The goal of the first run is not final quality, but simply to verify that loading, training, and inference work end to end.
+
+```{python}
+#| label: debug-sample
+#| echo: true
+
+train_df_debug = train_df.sample(n=100, random_state=SEED).copy()
+test_df_debug = test_df.sample(n=20, random_state=SEED).copy()
+
+train_dataset = Dataset.from_pandas(
+    train_df_debug[[TEXT_COLUMN]],
+    preserve_index=False
+)
+test_dataset = Dataset.from_pandas(
+    test_df_debug[[TEXT_COLUMN, TARGET_COLUMN]],
+    preserve_index=False
+)
+```
+
+## Define training arguments
+
+This block sets small training parameters for the initial test run. The batch size is intentionally small to fit Colab GPU memory, and we train only for one epoch to validate the pipeline quickly.
+
+```{python}
+#| label: training-args
+#| echo: true
+
+training_args = TrainingArguments(
+    output_dir="outputs/tinyllama-sentiment",
+    per_device_train_batch_size=2,
+    gradient_accumulation_steps=4,
+    num_train_epochs=1,
+    learning_rate=2e-4,
+    logging_steps=10,
+    save_strategy="no",
+    report_to="none",
+    fp16=True,
+)
+```
+
+## Create the supervised fine-tuning trainer
+
+This block combines the base model, LoRA configuration, training dataset, and training arguments into one trainer object. The trainer uses the `text` column as the input field.
+
+```{python}
+#| label: sft-trainer
+#| echo: true
+
+trainer = SFTTrainer(
+    model=model,
+    tokenizer=tokenizer,
+    train_dataset=train_dataset,
+    peft_config=peft_config,
+    args=training_args,
+    dataset_text_field=TEXT_COLUMN,
+)
+```
+
+## Run the first training pass
+
+This block starts fine-tuning. In the first Colab test, it should only confirm that the pipeline runs successfully on the small debug sample.
+
+```{python}
+#| label: run-training
+#| echo: true
+
+trainer.train()
+```
+
+## Generate predictions on the debug test set
+
+This block applies the fine-tuned model to a few held-out examples. We use only a small number of prompts and keep the generation short because the target output is just one sentiment label.
+
+```{python}
+#| label: generate-predictions
+#| echo: true
+
+generator = pipeline(
+    "text-generation",
+    model=trainer.model,
+    tokenizer=tokenizer,
+    max_new_tokens=8,
+    return_full_text=False,
+)
+
+sample_prompts = test_df_debug[TEXT_COLUMN].head(5).tolist()
+sample_outputs = generator(sample_prompts)
+
+sample_outputs
+```
+
+## Extract labels from model outputs
+
+This block maps the generated text back to one of the three sentiment labels. Because we set `return_full_text=False`, the extraction runs only on the model output, not on the original prompt.
+
+```{python}
+#| label: extract-labels
+#| echo: true
+
+def extract_label(generated_text: str) -> str:
+    text = generated_text.strip().lower()
+
+    if "(partly) negative" in text:
+        return "(partly) negative"
+    elif "neutral" in text:
+        return "neutral"
+    elif "positive" in text:
+        return "positive"
+    else:
+        return "unknown"
+
+pred_labels = []
+true_labels = test_df_debug[TARGET_COLUMN].head(5).tolist()
+
+for output in sample_outputs:
+    generated_text = output[0]["generated_text"]
+    pred_labels.append(extract_label(generated_text))
+
+list(zip(true_labels, pred_labels))
+```
+
+## Compute Macro-F1
+
+This block computes Macro-F1 on the predictions that could be mapped to one of the valid labels. Macro-F1 is the main evaluation metric because it gives equal weight to all sentiment classes.
+
+```{python}
+#| label: evaluate-macro-f1
+#| echo: true
+
+valid_idx = [i for i, pred in enumerate(pred_labels) if pred in LABELS]
+
+y_true = [true_labels[i] for i in valid_idx]
+y_pred = [pred_labels[i] for i in valid_idx]
+
+macro_f1 = f1_score(y_true, y_pred, labels=LABELS, average="macro")
+
+print("Macro-F1:", macro_f1)
+print(classification_report(y_true, y_pred, labels=LABELS))
+```
+
+## Notes
+
+For the first Colab test, this notebook should be run on the small debug sample. After the pipeline works end to end, the same setup can be scaled to the full training and test data.
