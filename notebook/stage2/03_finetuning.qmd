@@ -249,6 +249,15 @@ This block starts fine-tuning on the full training set for 3 epochs.
 trainer.train()
 ```
 
+```{python}
+#| label: save-model
+#| echo: true
+
+trainer.model.save_pretrained("/content/drive/MyDrive/CLT/stage2/tinyllama-sentiment")
+tokenizer.save_pretrained("/content/drive/MyDrive/CLT/stage2/tinyllama-sentiment")
+print("Model saved to Google Drive.")
+```
+
 ## Generate predictions
 
 This block applies the fine-tuned model to the full test set. Each article is truncated to 500 words to ensure the `### Response:` marker fits within the model's context window.
@@ -330,6 +339,23 @@ macro_f1 = f1_score(y_true, y_pred, labels=LABELS, average="macro")
 print(f"Valid predictions: {len(valid_idx)} / {len(pred_labels)}")
 print("Macro-F1:", macro_f1)
 print(classification_report(y_true, y_pred, labels=LABELS))
+```
+
+```{python}
+#| label: save-results
+#| echo: true
+
+import os
+
+results_df = pd.DataFrame({"true": y_true, "pred": y_pred})
+results_df.to_csv("/content/drive/MyDrive/CLT/stage2/tinyllama_predictions.csv", index=False)
+
+with open("/content/drive/MyDrive/CLT/stage2/tinyllama_results.txt", "w") as f:
+    f.write(f"Valid predictions: {len(valid_idx)} / {len(pred_labels)}\n")
+    f.write(f"Macro-F1: {macro_f1}\n")
+    f.write(classification_report(y_true, y_pred, labels=LABELS))
+
+print("Results saved to Google Drive.")
 ```
 
 ## Notes
