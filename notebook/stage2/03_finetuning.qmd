@@ -101,12 +101,18 @@ test_df = pd.read_parquet(test_path)
 train_df.shape, test_df.shape
 ```
 
+## Recode sentiment label
+
+The original label `(partly) negative` is too complex for a generative model to reproduce reliably. We recode it to `negative` in both the `sentiment_label` column and the full Alpaca `text` column, ensuring the training target and the label the model learns to generate are consistent.
+
 ```{python}
 #| label: recode-labels
 #| echo: true
 
 train_df["sentiment_label"] = train_df["sentiment_label"].str.replace("(partly) negative", "negative")
 test_df["sentiment_label"] = test_df["sentiment_label"].str.replace("(partly) negative", "negative")
+train_df["text"] = train_df["text"].str.replace("(partly) negative", "negative")
+test_df["text"] = test_df["text"].str.replace("(partly) negative", "negative")
 ```
 
 ## Inspect the data
@@ -248,6 +254,32 @@ This block starts fine-tuning on the full training set for 3 epochs.
 
 trainer.train()
 ```
+
+## Training Loss Curve
+
+This block plots the training loss over time. A steadily decreasing curve confirms that the model is learning. If the loss flattens early, more epochs would not help — a larger model or different hyperparameters would be needed instead.
+
+```{python}
+#| label: training-loss-curve
+#| echo: true
+
+import matplotlib.pyplot as plt
+
+loss_log = trainer.state.log_history
+steps = [x["step"] for x in loss_log if "loss" in x]
+losses = [x["loss"] for x in loss_log if "loss" in x]
+
+plt.figure(figsize=(10, 4))
+plt.plot(steps, losses)
+plt.xlabel("Step")
+plt.ylabel("Training Loss")
+plt.title("TinyLlama Fine-Tuning — Training Loss")
+plt.tight_layout()
+plt.savefig("/content/drive/MyDrive/CLT/stage2/training_loss.png")
+plt.show()
+```
+
+Finally we save the fine-tuned model and tokenizer to Google Drive for later use in inference and evaluation.
 
 ```{python}
 #| label: save-model
