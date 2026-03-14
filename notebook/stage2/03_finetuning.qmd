@@ -3,7 +3,7 @@
 This chapter fine-tunes TinyLlama 1.1B for three-class sentiment classification
 (negative / neutral / positive) using `AutoModelForSequenceClassification` with QLoRA
 (4-bit quantization + LoRA adapters). This is the standard approach for classification
-fine-tuning of compact LLMs — the model outputs a label directly, no text generation needed.
+fine-tuning of compact LLMs - the model outputs a label directly, no text generation needed.
 
 Code execution is disabled in Quarto (`eval: false`) because training runs in Colab Pro
 (A100 GPU, ~30–45 min). Results are hardcoded after the run.
@@ -143,7 +143,7 @@ bnb_config = BitsAndBytesConfig(
 ## Load model
 
 We load TinyLlama with a classification head (`num_labels=3`) instead of the causal LM head.
-This replaces the generative output with a direct 3-class softmax — cleaner and more stable
+This replaces the generative output with a direct 3-class softmax - cleaner and more stable
 for classification.
 
 ```{python}
@@ -176,7 +176,7 @@ peft_config = LoraConfig(
     lora_alpha=32,
     lora_dropout=0.05,
     bias="none",
-    task_type="SEQ_CLS",       # Sequence Classification — nicht CAUSAL_LM
+    task_type="SEQ_CLS",       # Sequence Classification - nicht CAUSAL_LM
     target_modules=["q_proj", "v_proj"],
 )
 
@@ -254,7 +254,7 @@ plt.figure(figsize=(10, 4))
 plt.plot(steps, losses)
 plt.xlabel("Step")
 plt.ylabel("Training Loss")
-plt.title("TinyLlama Fine-Tuning — Training Loss")
+plt.title("TinyLlama Fine-Tuning - Training Loss")
 plt.tight_layout()
 plt.savefig(PROJECT_DIR / "training_loss.png")
 plt.show()
@@ -310,3 +310,22 @@ with open(PROJECT_DIR / "tinyllama_results.txt", "w") as f:
 
 print("Results saved.")
 ```
+
+## Results
+
+TinyLlama 1.1B was fine-tuned for three-class sentiment classification (negative / neutral / positive) using `AutoModelForSequenceClassification` with QLoRA (4-bit, LoRA r=16) on an A100 GPU in approximately 28 minutes.
+
+The model achieved a **Macro-F1 of 0.757** on the held-out test set, slightly outperforming both Word2Vec (0.752) and FastText (0.745) on the same task. Neutral sentiment was predicted most reliably (F1 = 0.83), while negative and positive classes scored around 0.72 - reflecting the class imbalance in the dataset.
+
+| Class | Precision | Recall | F1 |
+|-------|-----------|--------|----|
+| negative | 0.76 | 0.68 | 0.72 |
+| neutral | 0.81 | 0.85 | 0.83 |
+| positive | 0.74 | 0.69 | 0.72 |
+| **macro avg** | **0.77** | **0.74** | **0.76** |
+
+The training loss curve shows a steady decline from ~2.5 to ~0.67 over 2,400 steps, with a
+noticeable drop around step 900. The curve was still slightly decreasing at the end of training,
+suggesting that additional epochs could yield further improvement.
+
+![Training Loss](results/training_loss.png)
