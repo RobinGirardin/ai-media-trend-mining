@@ -1,31 +1,29 @@
----
-title: "03 Fine-Tuning"
-execute:
-  eval: false
----
-
 # Fine-Tuning TinyLlama for Sentiment Classification
 
-This chapter documents the fine-tuning setup for TinyLlama on the sentiment task. Code execution is disabled in Quarto because training will be run in Colab, not during book rendering.
+This chapter fine-tunes TinyLlama 1.1B for three-class sentiment classification
+(negative / neutral / positive) using `AutoModelForSequenceClassification` with QLoRA
+(4-bit quantization + LoRA adapters). This is the standard approach for classification
+fine-tuning of compact LLMs — the model outputs a label directly, no text generation needed.
+
+Code execution is disabled in Quarto (`eval: false`) because training runs in Colab Pro
+(A100 GPU, ~30–45 min). Results are hardcoded after the run.
 
 ## Install dependencies
-
-This block installs the libraries needed for QLoRA fine-tuning in Colab. We use `transformers` for the base model, `peft` for LoRA adapters, `trl` for supervised fine-tuning, and `bitsandbytes` for 4-bit quantization.
 
 ```{python}
 #| label: install-dependencies
 #| echo: true
+#| eval: false
 
-!pip install -q transformers peft trl bitsandbytes accelerate datasets pyarrow
+!pip install -q transformers peft bitsandbytes accelerate datasets pyarrow
 ```
 
-## Import packages
-
-This block imports the core libraries for loading data, configuring the model, fine-tuning with QLoRA, and evaluating the predictions.
+## Imports
 
 ```{python}
 #| label: imports
 #| echo: true
+#| eval: false
 
 import pandas as pd
 import numpy as np
@@ -35,118 +33,104 @@ from pathlib import Path
 from datasets import Dataset
 from transformers import (
     AutoTokenizer,
-    AutoModelForCausalLM,
+    AutoModelForSequenceClassification,
     BitsAndBytesConfig,
     TrainingArguments,
-    pipeline,
+    Trainer,
 )
-from peft import LoraConfig
-from trl import SFTTrainer
-
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from sklearn.metrics import f1_score, classification_report
 ```
 
-## Local paths for Positron / Quarto
-
-This block resolves the repository root and constructs local file paths. It is useful when writing and documenting the notebook in Positron before converting it to a Colab notebook.
+## Configuration
 
 ```{python}
-#| label: paths-and-config
+#| label: config
 #| echo: true
+#| eval: false
 
-_cwd = Path.cwd()
-REPO_ROOT = _cwd if (_cwd / "data").exists() else _cwd.parents[1]
-STAGE2_DIR = REPO_ROOT / "data/processed/stage2"
-
-SEED = 42
-
-train_path = STAGE2_DIR / "llm_train.parquet"
-test_path = STAGE2_DIR / "llm_test.parquet"
+MODEL_NAME  = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+SEED        = 42
+MAX_LENGTH  = 512
+LABEL2ID    = {"negative": 0, "neutral": 1, "positive": 2}
+ID2LABEL    = {0: "negative", 1: "neutral", 2: "positive"}
 ```
 
-For usage in **Positron/Quarto**, use the next block. For **Google Colab**, use the Colab block further below instead.
-
-## Load data locally
-
-This block loads the train and test files from the local repository structure. It is only used in the local Quarto / Positron workflow.
-
-```{python}
-#| label: load-data
-#| echo: true
-
-train_df = pd.read_parquet(train_path)
-test_df = pd.read_parquet(test_path)
-
-train_df.shape, test_df.shape
-```
-
-## Alternative: load data in Colab
-
-This alternative block mounts Google Drive and loads the train and test parquet files from the shared Colab folder. Use this block in Colab instead of the local path/loading blocks above.
+## Mount Google Drive and load data
 
 ```{python}
 #| label: colab-drive-and-load-data
 #| echo: true
+#| eval: false
 
 from google.colab import drive
+drive.mount("/content/drive")
 
-drive.mount('/content/drive')
+PROJECT_DIR = Path("/content/drive/MyDrive/CLT/project")
 
-train_path = "/content/drive/MyDrive/CLT/stage2/llm_train.parquet"
-test_path = "/content/drive/MyDrive/CLT/stage2/llm_test.parquet"
+train_df = pd.read_parquet(PROJECT_DIR / "train.parquet")
+test_df  = pd.read_parquet(PROJECT_DIR / "test.parquet")
 
-train_df = pd.read_parquet(train_path)
-test_df = pd.read_parquet(test_path)
-
-train_df.shape, test_df.shape
+print(f"Train: {len(train_df):,}  |  Test: {len(test_df):,}")
+print("Label distribution (train):")
+print(train_df["sentiment_label"].value_counts())
 ```
 
-## Recode sentiment label
+## Prepare datasets
 
-The original label `(partly) negative` is too complex for a generative model to reproduce reliably. We recode it to `negative` in both the `sentiment_label` column and the full Alpaca `text` column, ensuring the training target and the label the model learns to generate are consistent.
+We recode "(partly) negative" to "negative" and tokenize full_content (truncated to 512 tokens) and map the string labels to integers.
 
 ```{python}
-#| label: recode-labels
+#| label: recode-sentiment
 #| echo: true
+#| eval: false
 
 train_df["sentiment_label"] = train_df["sentiment_label"].str.replace("(partly) negative", "negative")
-test_df["sentiment_label"] = test_df["sentiment_label"].str.replace("(partly) negative", "negative")
-train_df["text"] = train_df["text"].str.replace("(partly) negative", "negative")
-test_df["text"] = test_df["text"].str.replace("(partly) negative", "negative")
+test_df["sentiment_label"]  = test_df["sentiment_label"].str.replace("(partly) negative", "negative")
+
+print(train_df["sentiment_label"].unique())
+print(test_df["sentiment_label"].unique())
 ```
 
-## Inspect the data
-
-This block shows a few examples of the prompt text and the target sentiment label. It verifies that the dataset is already in instruction format and ready for supervised fine-tuning.
-
 ```{python}
-#| label: inspect-data
+#| label: prepare-datasets
 #| echo: true
+#| eval: false
 
-train_df[["text", "sentiment_label"]].head(3)
-```
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-## Define labels and model name
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
 
-This block defines the label set, the input and target columns, and the selected base model. Keeping these settings in one place makes the notebook easier to adjust later.
+def tokenize(batch):
+    enc = tokenizer(
+        batch["full_content"],
+        truncation=True,
+        max_length=MAX_LENGTH,
+        padding="max_length",
+    )
+    enc["labels"] = [LABEL2ID[l] for l in batch["sentiment_label"]]
+    return enc
 
-```{python}
-#| label: define-labels
-#| echo: true
+train_dataset = Dataset.from_pandas(train_df[["full_content", "sentiment_label"]]) \
+    .map(tokenize, batched=True, remove_columns=["full_content", "sentiment_label"])
 
-LABELS = ["negative", "neutral", "positive"]
-TARGET_COLUMN = "sentiment_label"
-TEXT_COLUMN = "text"
-MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+test_dataset  = Dataset.from_pandas(test_df[["full_content", "sentiment_label"]]) \
+    .map(tokenize, batched=True, remove_columns=["full_content", "sentiment_label"])
+
+train_dataset.set_format("torch")
+test_dataset.set_format("torch")
+
+print(f"Train samples: {len(train_dataset):,}")
+print(f"Test  samples: {len(test_dataset):,}")
 ```
 
 ## Configure 4-bit quantization
 
-This block sets up the quantization configuration for QLoRA. We use 4-bit loading to reduce GPU memory usage, which is important for running TinyLlama efficiently on Colab Pro.
-
 ```{python}
 #| label: quantization-config
 #| echo: true
+#| eval: false
 
 bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,
@@ -156,117 +140,114 @@ bnb_config = BitsAndBytesConfig(
 )
 ```
 
-## Load tokenizer and model
+## Load model
 
-This block loads the tokenizer and the quantized base model. If the tokenizer has no padding token, we reuse the EOS token so batching works correctly.
+We load TinyLlama with a classification head (`num_labels=3`) instead of the causal LM head.
+This replaces the generative output with a direct 3-class softmax — cleaner and more stable
+for classification.
 
 ```{python}
-#| label: load-tokenizer-and-model
+#| label: load-model
 #| echo: true
+#| eval: false
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-
-if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.eos_token
-
-model = AutoModelForCausalLM.from_pretrained(
+model = AutoModelForSequenceClassification.from_pretrained(
     MODEL_NAME,
+    num_labels=3,
+    id2label=ID2LABEL,
+    label2id=LABEL2ID,
     quantization_config=bnb_config,
     device_map="auto",
 )
+
+model.config.pad_token_id = tokenizer.pad_token_id
+model = prepare_model_for_kbit_training(model)
 ```
 
-## Configure LoRA adapters
-
-This block defines the LoRA setup. The chosen values are conservative starter settings: small enough for a first Colab test, but still standard for parameter-efficient fine-tuning.
+## Configure LoRA
 
 ```{python}
 #| label: lora-config
 #| echo: true
+#| eval: false
 
 peft_config = LoraConfig(
     r=16,
     lora_alpha=32,
     lora_dropout=0.05,
     bias="none",
-    task_type="CAUSAL_LM",
+    task_type="SEQ_CLS",       # Sequence Classification — nicht CAUSAL_LM
+    target_modules=["q_proj", "v_proj"],
 )
+
+model = get_peft_model(model, peft_config)
+model.print_trainable_parameters()
 ```
 
-## Prepare datasets
-
-This block prepares the full training and test datasets for fine-tuning and evaluation. The `text` column contains the Alpaca-formatted instruction, the `sentiment_label` column contains the gold label used for evaluation after inference.
-
-```{python}
-#| label: prepare-datasets
-#| echo: true
-
-train_dataset = Dataset.from_pandas(train_df[[TEXT_COLUMN]], preserve_index=False)
-test_dataset = Dataset.from_pandas(test_df[[TEXT_COLUMN, TARGET_COLUMN]], preserve_index=False)
-```
-
-## Define training arguments
-
-This block configures the training hyperparameters. The batch size is kept small to fit Colab GPU memory; gradient accumulation compensates for the small batch size.
+## Training arguments
 
 ```{python}
 #| label: training-args
 #| echo: true
+#| eval: false
 
 training_args = TrainingArguments(
     output_dir="outputs/tinyllama-sentiment",
-    per_device_train_batch_size=2,
-    gradient_accumulation_steps=4,
+    per_device_train_batch_size=8,
+    gradient_accumulation_steps=2,
     num_train_epochs=3,
     learning_rate=2e-4,
-    logging_steps=10,
+    logging_steps=50,
     save_strategy="no",
     report_to="none",
-    bf16=True,
-    fp16=False,
+    fp16=True,
+    seed=SEED,
 )
 ```
 
-## Create the supervised fine-tuning trainer
-
-This block combines the base model, LoRA configuration, training dataset, and training arguments into one trainer object. The trainer uses the `text` column as the input field.
+## Metrics function
 
 ```{python}
-#| label: sft-trainer
+#| label: metrics-fn
 #| echo: true
+#| eval: false
 
-trainer = SFTTrainer(
-    model=model,
-    train_dataset=train_dataset,
-    peft_config=peft_config,
-    args=training_args,
-    processing_class=tokenizer,
-)
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    preds = np.argmax(logits, axis=-1)
+    macro_f1 = f1_score(labels, preds, average="macro")
+    return {"macro_f1": macro_f1}
 ```
 
-## Run training
-
-This block starts fine-tuning on the full training set for 3 epochs.
+## Train
 
 ```{python}
 #| label: run-training
 #| echo: true
+#| eval: false
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    eval_dataset=test_dataset,
+    compute_metrics=compute_metrics,
+)
 
 trainer.train()
 ```
 
-## Training Loss Curve
-
-This block plots the training loss over time. A steadily decreasing curve confirms that the model is learning. If the loss flattens early, more epochs would not help — a larger model or different hyperparameters would be needed instead.
+## Training loss curve
 
 ```{python}
 #| label: training-loss-curve
 #| echo: true
+#| eval: false
 
 import matplotlib.pyplot as plt
 
 loss_log = trainer.state.log_history
-steps = [x["step"] for x in loss_log if "loss" in x]
+steps  = [x["step"] for x in loss_log if "loss" in x]
 losses = [x["loss"] for x in loss_log if "loss" in x]
 
 plt.figure(figsize=(10, 4))
@@ -275,121 +256,57 @@ plt.xlabel("Step")
 plt.ylabel("Training Loss")
 plt.title("TinyLlama Fine-Tuning — Training Loss")
 plt.tight_layout()
-plt.savefig("/content/drive/MyDrive/CLT/stage2/training_loss.png")
+plt.savefig(PROJECT_DIR / "training_loss.png")
 plt.show()
 ```
 
-Finally we save the fine-tuned model and tokenizer to Google Drive for later use in inference and evaluation.
+## Evaluate
+
+```{python}
+#| label: evaluate
+#| echo: true
+#| eval: false
+
+predictions = trainer.predict(test_dataset)
+y_pred = np.argmax(predictions.predictions, axis=-1)
+y_true = predictions.label_ids
+
+y_pred_labels = [ID2LABEL[i] for i in y_pred]
+y_true_labels = [ID2LABEL[i] for i in y_true]
+
+macro_f1 = f1_score(y_true_labels, y_pred_labels, average="macro",
+                    labels=["negative", "neutral", "positive"])
+
+print(f"Macro-F1: {macro_f1:.4f}")
+print()
+print(classification_report(y_true_labels, y_pred_labels,
+                             labels=["negative", "neutral", "positive"]))
+```
+
+## Save model and results
 
 ```{python}
 #| label: save-model
 #| echo: true
+#| eval: false
 
-trainer.model.save_pretrained("/content/drive/MyDrive/CLT/stage2/tinyllama-sentiment")
-tokenizer.save_pretrained("/content/drive/MyDrive/CLT/stage2/tinyllama-sentiment")
-print("Model saved to Google Drive.")
-```
-
-## Generate predictions
-
-This block applies the fine-tuned model to the full test set. Each article is truncated to 500 words to ensure the `### Response:` marker fits within the model's context window.
-
-```{python}
-#| label: make-inference-prompt
-#| echo: true
-
-def make_inference_prompt(full_text: str) -> str:
-    """Strip the gold label — keep only the prompt part up to ### Response:"""
-    parts = full_text.split("### Response:")
-    instruction = parts[0]
-    words = instruction.split()
-    if len(words) > 500:
-        instruction = " ".join(words[:500]) + "\n\n"
-    return instruction + "### Response:"
-```
-
-```{python}
-#| label: generate-predictions
-#| echo: true
-
-generator = pipeline(
-    "text-generation",
-    model=trainer.model,
-    tokenizer=tokenizer,
-    max_new_tokens=12,
-    return_full_text=False,
-)
-
-sample_prompts = [make_inference_prompt(t) for t in test_df[TEXT_COLUMN].tolist()]
-sample_outputs = generator(sample_prompts)
-```
-
-## Extract labels from model outputs
-
-This block maps the generated text back to one of the three sentiment labels. Because we set `return_full_text=False`, the extraction runs only on the model output, not on the original prompt.
-
-```{python}
-#| label: extract-labels
-#| echo: true
-
-def extract_label(generated_text: str) -> str:
-    text = generated_text.strip().lower()
-    if "negative" in text:
-        return "negative"
-    elif "neutral" in text:
-        return "neutral"
-    elif "positive" in text:
-        return "positive"
-    else:
-        return "unknown"
-
-pred_labels = []
-true_labels = test_df[TARGET_COLUMN].tolist()
-
-for output in sample_outputs:
-    generated_text = output[0]["generated_text"]
-    pred_labels.append(extract_label(generated_text))
-
-list(zip(true_labels, pred_labels))
-```
-
-## Compute Macro-F1
-
-This block computes Macro-F1 on the predictions that could be mapped to one of the valid labels. Macro-F1 is the main evaluation metric because it gives equal weight to all sentiment classes.
-
-```{python}
-#| label: evaluate-macro-f1
-#| echo: true
-
-valid_idx = [i for i, pred in enumerate(pred_labels) if pred in LABELS]
-
-y_true = [true_labels[i] for i in valid_idx]
-y_pred = [pred_labels[i] for i in valid_idx]
-
-macro_f1 = f1_score(y_true, y_pred, labels=LABELS, average="macro")
-
-print(f"Valid predictions: {len(valid_idx)} / {len(pred_labels)}")
-print("Macro-F1:", macro_f1)
-print(classification_report(y_true, y_pred, labels=LABELS))
+trainer.model.save_pretrained(PROJECT_DIR / "tinyllama-sentiment")
+tokenizer.save_pretrained(PROJECT_DIR / "tinyllama-sentiment")
+print("Model saved.")
 ```
 
 ```{python}
 #| label: save-results
 #| echo: true
+#| eval: false
 
-import os
+results_df = pd.DataFrame({"true": y_true_labels, "pred": y_pred_labels})
+results_df.to_csv(PROJECT_DIR / "tinyllama_predictions.csv", index=False)
 
-results_df = pd.DataFrame({"true": y_true, "pred": y_pred})
-results_df.to_csv("/content/drive/MyDrive/CLT/stage2/tinyllama_predictions.csv", index=False)
-
-with open("/content/drive/MyDrive/CLT/stage2/tinyllama_results.txt", "w") as f:
-    f.write(f"Valid predictions: {len(valid_idx)} / {len(pred_labels)}\n")
+with open(PROJECT_DIR / "tinyllama_results.txt", "w") as f:
     f.write(f"Macro-F1: {macro_f1}\n")
-    f.write(classification_report(y_true, y_pred, labels=LABELS))
+    f.write(classification_report(y_true_labels, y_pred_labels,
+                                   labels=["negative", "neutral", "positive"]))
 
-print("Results saved to Google Drive.")
+print("Results saved.")
 ```
-
-## Notes
-
-Training runs on the full dataset (~13k articles) for 3 epochs using QLoRA (4-bit quantization, LoRA r=16). Inference truncates article text to 500 words to ensure the `### Response:` marker fits within TinyLlama's 2048-token context window. The Macro-F1 score is directly comparable to the classical embedding baselines in Chapter 2.
