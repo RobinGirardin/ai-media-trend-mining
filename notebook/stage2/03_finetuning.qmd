@@ -324,8 +324,41 @@ The model achieved a **Macro-F1 of 0.757** on the held-out test set, slightly ou
 | positive | 0.74 | 0.69 | 0.72 |
 | **macro avg** | **0.77** | **0.74** | **0.76** |
 
-The training loss curve shows a steady decline from ~2.5 to ~0.67 over 2,400 steps, with a
-noticeable drop around step 900. The curve was still slightly decreasing at the end of training,
-suggesting that additional epochs could yield further improvement.
+The training loss curve shows a steady decline from ~2.5 to ~0.67 over 2,400 steps, with a noticeable drop around step 900. The curve was still slightly decreasing at the end of training, suggesting that additional epochs could yield further improvement.
 
 ![Training Loss](results/training_loss.png)
+
+## Environmental Impact
+
+To evaluate the trade-off between model complexity and resource consumption, we compared our fine-tuned **TinyLlama 1.1B** model with a traditional **Word2Vec + Logistic Regression** approach.
+
+### Technical Comparison
+
+The following table summarizes the performance, time, and carbon footprint of both methods:
+
+| Feature | Google Colab (Cloud-based LLM) | Lenovo Yoga (Local Machine Learning) |
+| :--- | :--- | :--- |
+| **Methodology** | QLoRA Fine-tuning (4-bit, r=16) | Word2Vec + Logistic Regression |
+| **Hardware** | NVIDIA A100 GPU | AMD Ryzen 7 (Laptop) |
+| **Duration** | 28 Minutes | 2 Minutes |
+| **Energy Used** | ~0.250 kWh | ~0.002 kWh |
+| **CO2 Footprint (CH)** | **~65.0 g CO2** | **~0.2 g CO2** |
+| **Macro-F1 Score** | **0.757** | **0.752** |
+
+### Calculation Methodology
+
+We calculated the environmental impact using the standard formula:
+`Energy Consumption (kWh) × Carbon Intensity (g/kWh)`
+
+1.  **Energy Consumption:** 
+    *   **Cloud-based:** Based on a 400W TDP for the A100 GPU, including a system overhead (PUE factor of 1.1) typical for high-efficiency data centers.
+    *   **Local:** Based on a 60W total system load (CPU at full stress, display, and peripherals) for our Ryzen 7-powered laptop over a 2-minute processing period.
+2.  **Carbon Intensity:**
+    *   **Cloud:** Estimated at 260g/kWh, representing a global average for modern data center operations.
+    *   **Local (CH):** Since our local experiments were conducted in **Switzerland**, we used the Swiss grid mix intensity of approximately **100g/kWh**, which reflects the high share of hydroelectric and nuclear energy.
+
+### Classification Performance
+
+Our results show that the fine-tuned TinyLlama model achieved a **Macro-F1 of 0.757**, only marginally outperforming the local Word2Vec baseline (**0.752**). Both models exhibited similar sensitivities to class imbalance: the "neutral" class was predicted most reliably (F1 = 0.83), while the "positive" and "negative" classes both scored around 0.72. 
+
+In conclusion, our local methodology provided a comparable level of accuracy while being roughly **325 times more carbon-efficient** than the cloud-based LLM approach.
