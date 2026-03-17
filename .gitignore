@@ -9,13 +9,11 @@ _cache/
 # Quarto rendered outputs
 *_files/
 search.json
-*.png
 
 # Jupyter / Notebook cache
 **/.jupyter_cache/
 .ipynb_checkpoints/
 **/*.quarto_ipynb
-*.ipynb
 
 # Data
 sandbox/
