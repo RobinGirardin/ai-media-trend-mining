@@ -211,7 +211,7 @@ synth_pair["positive"] = synth_pair.chunked_content.apply(
 synth_pair["negative"] = synth_pair.chunked_content.apply(
     lambda x: bi_translation(n_pass=3, text_to_translate=x, temp=1.1, top_p=0.99)[1]
 )
-synth_pair.to_parquet(str(Path(STAGE2_DIR, "synth_chunks.parquet")))
+synth_pair.to_parquet(str(Path(REPO_ROOT, "notebook/stage2/results", "synth_chunks.parquet")))
 ```
 
 A few examples from the constructed set:
@@ -219,7 +219,7 @@ A few examples from the constructed set:
 ```{python}
 #| label: show-synth-examples
 #| eval: true
-synth_pair = pd.read_parquet(str(Path(STAGE2_DIR, "synth_chunks.parquet")))
+synth_pair = pd.read_parquet(str(Path(REPO_ROOT, "notebook/stage2/results","synth_chunks.parquet")))
 
 for i, row in synth_pair.iterrows():
     if i == 2:
@@ -399,7 +399,7 @@ improvement  = (initial_loss - final_loss) / initial_loss * 100
 #| fig-width: 7
 #| fig-height: 3.2
 
-LOSS_CACHE = Path(STAGE2_DIR / "plot_loss_curve.png")
+LOSS_CACHE = Path(REPO_ROOT / "notebook" / "stage2" / "results" / "plot_loss_curve.png")
 
 if not LOSS_CACHE.exists():
     fig, ax = plt.subplots(figsize=(7, 3.2))
@@ -436,7 +436,7 @@ else:
 #| fig-width: 7
 #| fig-height: 2.6
 
-LR_CACHE = Path(STAGE2_DIR / "plot_lr_schedule.png")
+LR_CACHE = Path(REPO_ROOT / "notebook" / "stage2" / "results" / "plot_lr_schedule.png")
 
 if not LR_CACHE.exists():
     fig, ax = plt.subplots(figsize=(7, 2.6))
@@ -463,7 +463,7 @@ else:
 #| fig-width: 7
 #| fig-height: 2.6
 
-DIST_CACHE = Path(STAGE2_DIR / "plot_loss_dist.png")
+DIST_CACHE = Path(REPO_ROOT / "notebook" / "stage2" / "results" / "plot_loss_dist.png")
 
 if not DIST_CACHE.exists():
     fig, ax = plt.subplots(figsize=(7, 2.6))
@@ -500,7 +500,7 @@ finetuned_gemma  = SentenceTransformer.load(
 ```{python}
 #| label: intrinsic-compute
 #| eval: false
-synth_chunks = pd.read_parquet(str(Path(STAGE2_DIR, "synth_chunks.parquet")))
+synth_chunks = pd.read_parquet(str(Path(REPO_ROOT, "notebook", "stage2", "results", "synth_chunks.parquet")))
 intra_result = defaultdict(list)
 
 for i, row in synth_chunks.iterrows():
@@ -513,14 +513,14 @@ for i, row in synth_chunks.iterrows():
         intra_result[f"{name}_positive"].append(cosine_similarity(origin, pos))
         intra_result[f"{name}_negative"].append(cosine_similarity(origin, neg))
 
-pd.DataFrame(intra_result).to_parquet(str(Path(STAGE2_DIR, "intrinsic_eval_result.parquet")))
+pd.DataFrame(intra_result).to_parquet(str(Path(REPO_ROOT, "notebook", "stage2", "results", "intrinsic_eval_result.parquet")))
 ```
 
 ```{python}
 #| label: load-intrinsic
 #| eval: true
 #| echo: false
-intrinsic = pd.read_parquet(str(Path(STAGE2_DIR, "intrinsic_eval_result.parquet")))
+intrinsic = pd.read_parquet(str(Path(REPO_ROOT, "notebook", "stage2", "results",  "intrinsic_eval_result.parquet")))
 
 pre_pos = intrinsic.pretrained_positive.mean()
 pre_neg = intrinsic.pretrained_negative.mean()
@@ -538,7 +538,7 @@ ft_gap  = ft_pos  - ft_neg
 #| fig-width: 6
 #| fig-height: 3.5
 
-IBAR_CACHE = Path(STAGE2_DIR / "plot_intrinsic_bars.png")
+IBAR_CACHE = Path(REPO_ROOT / "notebook" / "stage2" / "results" / "plot_intrinsic_bars.png")
 
 if not IBAR_CACHE.exists():
     fig, ax = plt.subplots(figsize=(6, 3.5))
@@ -694,7 +694,7 @@ for name, X_tr, X_te in [
 #| fig-width: 5
 #| fig-height: 3.2
 
-F1_CACHE = Path(STAGE2_DIR / "plot_f1_comparison.png")
+F1_CACHE = Path(REPO_ROOT / "notebook" / "stage2" / "results" / "plot_f1_comparison.png")
 
 if not F1_CACHE.exists():
     fig, ax = plt.subplots(figsize=(5, 3.2))
