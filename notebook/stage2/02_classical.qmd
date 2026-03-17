@@ -13,7 +13,6 @@ This chapter trains Word2Vec and FastText models on the tokenized article chunks
 import sys
 sys.setrecursionlimit(10000)
 
-import ast
 import warnings
 from pathlib import Path
 
@@ -42,13 +41,13 @@ SEED = 42
 
 # Training corpus: tokenized paragraph chunks
 corpus = pd.read_parquet(STAGE2_DIR / "corpus_chunks.parquet")
-corpus["tokens"] = corpus["tokens"].apply(ast.literal_eval)
+corpus["tokens"] = corpus["tokens"].apply(eval)
 
 # Evaluation splits: article-level with sentiment and topic labels
 train = pd.read_parquet(STAGE2_DIR / "train.parquet")
 test  = pd.read_parquet(STAGE2_DIR / "test.parquet")
-train["tokens"] = train["tokens"].apply(ast.literal_eval)
-test["tokens"]  = test["tokens"].apply(ast.literal_eval)
+train["tokens"] = train["tokens"].apply(eval)
+test["tokens"]  = test["tokens"].apply(eval)
 
 # Token sequences for Word2Vec / FastText training
 sentences = corpus["tokens"].tolist()
@@ -223,6 +222,81 @@ plt.show()
 ```
 
 The focused projection confirms the thematic clusters observed in the nearest-neighbour analysis. Seed words (red) are consistently surrounded by their domain-relevant neighbours (blue), with clear separation between clusters such as AI models and companies, hardware and inference, and regulatory vocabulary.
+
+### Clustering Quality
+
+To quantify the cluster structure visible in the UMAP projections, we apply K-Means (k=10, matching the number of topic classes) to the document embeddings computed from both models, and report the **Silhouette Score** - a standard metric for clustering quality ranging from -1 (poor) to +1 (perfect separation). A positive score indicates that documents within a cluster are more similar to each other than to documents in neighbouring clusters.
+
+```{python}
+#| label: clustering-quality
+#| echo: true
+
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import normalize
+
+# Compute document embeddings from training split (same mean-pooling as extrinsic evaluation)
+def mean_pooling_local(tokens, model):
+    vectors = [model.wv[t] for t in tokens if t in model.wv]
+    return np.mean(vectors, axis=0) if vectors else np.zeros(model.vector_size)
+
+X_w2v_cl = np.array([mean_pooling_local(t, w2v_model) for t in train["tokens"]])
+X_ft_cl  = np.array([mean_pooling_local(t, ft_model)  for t in train["tokens"]])
+
+# Normalise to unit length before clustering (cosine similarity)
+X_w2v_norm = normalize(X_w2v_cl)
+X_ft_norm  = normalize(X_ft_cl)
+
+k = 10  # matches number of topic classes
+results_clustering = {}
+
+for name, X in [("Word2Vec", X_w2v_norm), ("FastText", X_ft_norm)]:
+    km = KMeans(n_clusters=k, random_state=SEED, n_init=10)
+    labels = km.fit_predict(X)
+    score = silhouette_score(X, labels, metric="cosine", sample_size=5000, random_state=SEED)
+    results_clustering[name] = score
+
+df_sil = pd.DataFrame({
+    "Model":           list(results_clustering.keys()),
+    "Silhouette Score": [f"{v:.4f}" for v in results_clustering.values()],
+    "k":               [k] * len(results_clustering),
+})
+display(df_sil.style
+    .hide(axis="index") 
+    .set_properties(**{"text-align": "center"})
+    .set_table_styles([{"selector": "th", "props": [("text-align", "center"), ("background-color", "#f0f0f0")]}])
+)
+```
+
+Both models yield low but positive Silhouette Scores (Word2Vec: 0.161, FastText: 0.167), which is expected for a corpus of long-form AI media articles: the domain is thematically homogeneous, so clusters overlap considerably in embedding space. The scores confirm the pattern already visible in the UMAP projections - there is meaningful structure, but boundaries between topics are soft. FastText's marginally higher clustering score reflects its broader vocabulary coverage through subword n-grams, even though Word2Vec outperforms it on downstream classification tasks.
+
+To visualise the cluster structure, we project the document embeddings into 2D with UMAP and colour each point by its K-Means cluster assignment.
+
+```{python}
+#| label: clustering-umap
+#| echo: true
+
+reducer_doc = umap.UMAP(n_components=2, random_state=SEED, n_neighbors=15, min_dist=0.1)
+
+fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+for ax, (name, X_norm) in zip(axes, [("Word2Vec", X_w2v_norm), ("FastText", X_ft_norm)]):
+    km = KMeans(n_clusters=k, random_state=SEED, n_init=10)
+    cluster_labels = km.fit_predict(X_norm)
+    proj = reducer_doc.fit_transform(X_norm)
+    scatter = ax.scatter(proj[:, 0], proj[:, 1], c=cluster_labels,
+                         cmap="tab10", s=2, alpha=0.4)
+    ax.set_title(f"{name} – K-Means clusters (k={k})")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    plt.colorbar(scatter, ax=ax, label="Cluster")
+
+plt.suptitle("Document Embedding Clusters (UMAP projection, coloured by K-Means)")
+plt.tight_layout()
+plt.show()
+```
+
+Word2Vec produces a rounder, more evenly distributed layout with clearly detached satellite clusters at the periphery - likely niche topics such as Quantum Computing with highly specific vocabulary. FastText yields a more elongated structure with sharper outlier clusters, consistent with its subword features producing more distinct representations for rare and compound technical terms. Both models show a large central mass of documents with overlapping clusters, reflecting the thematic homogeneity of the AI media domain and the soft boundaries between topics.
 
 
 ## Extrinsic Evaluation
