@@ -68,9 +68,73 @@ architectures suggests all models are approaching this ceiling.
 
 ## Conclusion
 
-For AI trend detection in media texts, classical Word2Vec embeddings combined with logistic
-regression offer the best cost-performance ratio. Fine-tuned LLMs provide marginal improvements
-at substantially higher computational cost and carbon footprint. The choice between approaches
-should be guided by the deployment context: if inference speed, energy efficiency, and
-interpretability matter, classical models are the pragmatic choice. If marginal accuracy gains
-justify GPU infrastructure, compact fine-tuned LLMs are a viable alternative.
+For AI trend detection in media texts, classical Word2Vec embeddings combined with logistic regression offer the best cost-performance ratio. Fine-tuned LLMs provide marginal improvements at substantially higher computational cost and carbon footprint. The choice between approaches should be guided by the deployment context: if inference speed, energy efficiency, and
+interpretability matter, classical models are the pragmatic choice. If marginal accuracy gains justify GPU infrastructure, compact fine-tuned LLMs are a viable alternative.
+
+## Insight Extraction: What Do the Embeddings Reveal About AI Trends?
+
+Beyond classification performance, we use the best-performing classical model (Word2Vec) to examine the thematic structure of AI discourse. By projecting document embeddings into 2D with UMAP and colouring by the topic labels derived in Stage 1, we can directly inspect how topics cluster in the learned embedding space - and what this reveals about the organisation of AI
+media coverage.
+
+```{python}
+#| label: insight-extraction
+#| echo: true
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import umap
+from pathlib import Path
+from gensim.models import Word2Vec
+
+_cwd = Path.cwd()
+REPO_ROOT  = _cwd if (_cwd / "data").exists() else _cwd.parents[1]
+STAGE2_DIR = REPO_ROOT / "data/processed/stage2"
+
+# Load data and model
+train = pd.read_parquet(STAGE2_DIR / "train.parquet")
+test  = pd.read_parquet(STAGE2_DIR / "test.parquet")
+train["tokens"] = train["tokens"].apply(eval)
+test["tokens"]  = test["tokens"].apply(eval)
+
+w2v_model = Word2Vec.load(str(STAGE2_DIR / "word2vec.model"))
+
+def mean_pooling(tokens, model):
+    vectors = [model.wv[t] for t in tokens if t in model.wv]
+    return np.mean(vectors, axis=0) if vectors else np.zeros(model.vector_size)
+
+# Combine train and test for a fuller picture
+all_df = pd.concat([train, test], ignore_index=True)
+all_df = all_df.dropna(subset=["topic_label"]).reset_index(drop=True)
+X_all  = np.array([mean_pooling(t, w2v_model) for t in all_df["tokens"]])
+
+# UMAP projection
+reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=15, min_dist=0.1)
+proj    = reducer.fit_transform(X_all)
+
+# Plot coloured by topic
+topics  = all_df["topic_label"].tolist()
+unique_topics = sorted(set(topics))
+palette = plt.cm.get_cmap("tab10", len(unique_topics))
+color_map = {t: palette(i) for i, t in enumerate(unique_topics)}
+colors  = [color_map[t] for t in topics]
+
+fig, ax = plt.subplots(figsize=(14, 9))
+for topic in unique_topics:
+    mask = [t == topic for t in topics]
+    ax.scatter(proj[mask, 0], proj[mask, 1],
+               c=[color_map[topic]], s=3, alpha=0.4, label=topic)
+
+ax.legend(markerscale=4, fontsize=8, loc="upper right",
+          framealpha=0.8, title="Topic")
+ax.set_title("Word2Vec Document Embeddings - UMAP projection coloured by Topic (Stage 1 labels)")
+ax.set_xticks([])
+ax.set_yticks([])
+plt.tight_layout()
+plt.show()
+```
+
+The projection reveals a clear thematic organisation of AI media discourse that goes beyond what classification metrics can capture. **Search, SEO & Marketing** (grey) forms two distinct isolated clusters outside the main body, reflecting its highly domain-specific vocabulary around search engines and digital marketing. **Stocks & Market Ratings** (yellow-green) separates cleanly to the right, and **Quantum Computing** (pink) clusters at the bottom right of the main body - both topics carry specialised terminology with little overlap with general AI coverage. **Consumer Tech** (red) appears as a compact cluster above the main body, while **Energy, Power & Robotics** (purple) sits at the upper left periphery. At the core, **AI News & Tech (General)** dominates the dense centre, with **ML Models & Training Data** heavily overlapping - consistent with the difficulty all models had separating these two classes in classification.
+
+Crucially, this structure was learned entirely from word co-occurrence statistics, without any topic supervision. The fact that Word2Vec recovers the broad organisation of AI discourse unsupervised demonstrates that classical embeddings trained on domain-specific text capture
+genuine thematic structure - making them a practical tool for tracking how AI topics relate and evolve over time.
