@@ -289,7 +289,7 @@ pd.DataFrame({"true": y_true_labels, "pred": y_pred_labels}).to_csv(
 ## TinyLlama Results
 
 TinyLlama 1.1B was fine-tuned on an A100 GPU in **28 minutes**. The training loss declined
-steadily from ~2.5 to ~0.67 over 2,400 steps, with a notable drop around step 900. The curve
+steadily from ~2.5 to ~0.65 over 2,400 steps, with a notable drop around step 900. The curve
 was still slightly decreasing at the end of training, suggesting further potential with
 additional epochs.
 
@@ -428,8 +428,10 @@ pd.DataFrame({"true": y_true_labels, "pred": y_pred_labels}).to_csv(
 
 Gemma 2 2B was fine-tuned on an A100 GPU in **66 minutes**. The training loss started
 higher (~6.8) due to the larger randomly-initialized classification head, but declined
-to ~1.84 by the end of training - still higher than TinyLlama, suggesting it would
-benefit more from additional epochs.
+to ~1.03 by the end of training - still higher than TinyLlama (~0.65), suggesting it
+would benefit more from additional epochs.
+
+![Gemma 2 Training Loss](results/gemma2_training_loss.png)
 
 | Class | Precision | Recall | F1 |
 |-------|-----------|--------|----|

@@ -47,9 +47,9 @@ SEED = 42
 
 We load the three core tables produced by Stage 1 directly from `data/processed/`.
 
-- **`media_cleaned.csv`** — one row per article; includes `full_content`, `date`, `domain`, a categorical `sentiment` label (negative / neutral / positive) and a numeric `num_sentiment` score (−1 / 0 / +1) from the RoBERTa model in Stage 1.
-- **`media_has_chunk_cleaned.csv`** — one row per paragraph chunk; includes the categorical `sentiment` label (negative / neutral / positive) from the RoBERTa model.
-- **`media_has_tags_cleaned.csv`** — one row per tag–article pair.
+- **`media_cleaned.csv`** - one row per article; includes `full_content`, `date`, `domain`, a categorical `sentiment` label (negative / neutral / positive) and a numeric `num_sentiment` score (−1 / 0 / +1) from the RoBERTa model in Stage 1.
+- **`media_has_chunk_cleaned.csv`** - one row per paragraph chunk; includes the categorical `sentiment` label (negative / neutral / positive) from the RoBERTa model.
+- **`media_has_tags_cleaned.csv`** - one row per tag–article pair.
 
 ```{python}
 #| label: load-stage1
@@ -88,7 +88,7 @@ lemmatizer = WordNetLemmatizer()
 def tokenize_and_lemmatize(text: str) -> list[str]:
     """
     Tokenize with spaCy blank('en'), remove stopwords and noise,
-    then lemmatize with WordNet — identical to the Stage 1 pipeline.
+    then lemmatize with WordNet - identical to the Stage 1 pipeline.
     """
     doc = nlp(str(text))
     tokens = []
@@ -143,7 +143,7 @@ print(f"Mean tokens / article       : {media['tokens'].str.len().mean():.0f}")
 print(f"Median tokens / article     : {media['tokens'].str.len().median():.0f}")
 ```
 
-## Extrinsic Label 1 — Sentiment
+## Extrinsic Label 1 - Sentiment
 
 The `sentiment` column in `media_cleaned.csv` contains a float aggregate score per article (mean of chunk-level scores mapped to −1 / 0 / +1 by the RoBERTa model in Stage 1). We convert it to a three-class label using fixed thresholds: scores below 0 are classified as *(partly) negative*, scores between 0 and 0.5 (inclusive) as *neutral*, and scores above 0.5 as *positive*.
 
@@ -166,9 +166,9 @@ print("Class balance:")
 print(media["sentiment_label"].value_counts(normalize=True).round(3))
 ```
 
-## Extrinsic Label 2 — Topic
+## Extrinsic Label 2 - Topic
 
-The BERTopic model saved in Stage 1 retains the topic assignments from `fit_transform` in its `topics_` attribute. After loading the model we read them directly — no re-inference needed. Articles assigned to topic −1 (outliers) are excluded. We further limit the task to the **top 10 topics by article count**, as the remaining 10 topics have fewer than 100 articles each and are too small for reliable model training and evaluation. Articles outside the top 10 retain `NaN` for `topic_id` and `topic_label`.
+The BERTopic model saved in Stage 1 retains the topic assignments from `fit_transform` in its `topics_` attribute. After loading the model we read them directly - no re-inference needed. Articles assigned to topic −1 (outliers) are excluded. We further limit the task to the **top 10 topics by article count**, as the remaining 10 topics have fewer than 100 articles each and are too small for reliable model training and evaluation. Articles outside the top 10 retain `NaN` for `topic_id` and `topic_label`.
 
 ```{python}
 #| label: topic-labels
