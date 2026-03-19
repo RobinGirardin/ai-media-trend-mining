@@ -18,6 +18,7 @@ book:
     - part: "Part III: LLM Fine-Tuning"
       chapters:
         - 03_finetuning.qmd
+        - 03_finetuning_gemma_embedding_300m.qmd
     - part: "Part IV: Evaluation"
       chapters:
         - 04_evaluation.qmd
