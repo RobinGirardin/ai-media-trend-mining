@@ -1,0 +1,764 @@
+---
+title: "Fine-Tuning Gemma Embedding 300M"
+subtitle: "Domain Adaptation via SimCSE for AI & Technology Media Retrieval"
+date: today
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    toc-title: "Contents"
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    code-tools: true
+    fig-align: center
+    fig-dpi: 150
+    callout-appearance: minimal
+    smooth-scroll: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+  echo: true
+---
+
+```{python}
+#| label: imports
+#| eval: true
+#| echo: false
+from pathlib import Path
+import json
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import matplotlib.ticker as ticker
+from matplotlib.ticker import MaxNLocator
+import pandas as pd
+import numpy as np
+import logging
+import re
+from collections import defaultdict
+from copy import deepcopy
+import pickle
+import torch
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, f1_score, confusion_matrix
+
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, TrainerCallback
+from sentence_transformers import (
+    SentenceTransformer, SentenceTransformerModelCardData,
+    SentenceTransformerTrainingArguments, SentenceTransformerTrainer,
+)
+from sentence_transformers.training_args import BatchSamplers
+from sentence_transformers.losses import MultipleNegativesRankingLoss
+from datasets import Dataset
+import codecarbon
+import accelerate
+
+# ── Shared plot style ─────────────────────────────────────────────────────
+ACCENT = "#2563eb"
+GREEN  = "#16a34a"
+AMBER  = "#d97706"
+RED    = "#dc2626"
+MUTED  = "#6b7280"
+
+plt.rcParams.update({
+    "axes.spines.top":   False,
+    "axes.spines.right": False,
+    "axes.grid":         True,
+    "grid.linewidth":    0.5,
+    "grid.linestyle":    "--",
+    "grid.color":        "#e5e7eb",
+    "font.size":         9,
+    "axes.titlesize":    10,
+    "axes.titleweight":  "bold",
+    "legend.fontsize":   8,
+    "legend.framealpha": 0.8,
+})
+```
+
+```{python}
+#| label: env
+#| eval: true
+#| echo: false
+_cwd = Path.cwd()
+REPO_ROOT  = _cwd if (_cwd / "data").exists() else _cwd.parents[1]
+STAGE2_DIR = REPO_ROOT / "data/processed/stage2"
+SEED = 42
+```
+
+# Introduction
+
+Classical embedding models such as Word2Vec and FastText remain strong baselines for many NLP tasks. However, the [MTEB Leaderboard](https://huggingface.co/spaces/mteb/leaderboard) — the standard benchmark for text embeddings — is today dominated entirely by transformer-based architectures.
+
+Among these, **[`google/embeddinggemma-300m`](https://huggingface.co/google/embeddinggemma-300m)** stands out: ranked **14th globally** as of March 13th, 2026, it achieves this with only 300 million parameters, competing with models five or more times its size. This chapter documents an attempt to fine-tune it on our internal AI & technology media corpus to improve downstream RAG retrieval quality.
+
+## Model Overview
+
+`gemma-embedding-300m` is a **bi-encoder** distilled from Gemini. Unlike the original causal architecture, it uses bidirectional attention, making it functionally equivalent to an encoder. Its output is a 768-dimensional dense vector optimised for cosine similarity.
+
+| Property | Value |
+|---|---|
+| Parameters | 300M |
+| MTEB Rank | #14 (March 2026) |
+| Embedding dimension | 768 |
+| Max input tokens | 2048 |
+| Attention | Bidirectional |
+
+# Approach
+
+## Why Fine-Tune?
+
+`gemma-embedding-300m` was pre-trained on a broad web corpus. Its embedding space reflects the general distribution of internet text, not the specific vocabulary and framing of AI & technology journalism. Fine-tuning nudges the geometry of the space so that domain-specific concepts cluster more tightly.
+
+This is **not** task learning. It is domain familiarisation — updating the model's representations before a later supervised stage trains a specific retrieval skill on top.
+
+## The SimCSE Loss
+
+We use **Unsupervised SimCSE** (Gao et al., 2021). The same sentence is passed twice through the model; stochastic dropout produces two slightly different embeddings that form the positive pair. All other sentences in the batch are implicit negatives.
+
+| | SimCSE — Phase 1 (this chapter) | Supervised pairs — Phase 2 (future) |
+|---|---|---|
+| Labels required | No | Yes — query/passage pairs |
+| Positive pair source | Dropout noise | Annotated or synthetic |
+| Negative pair source | In-batch sentences | Hard-mined negatives |
+| Goal | Domain knowledge | Retrieval skill |
+
+Since SimCSE requires no labels and only touches internal representations, the full 436,000-chunk corpus remains available for Phase 2 supervised training — the two stages are complementary.
+
+::: {.callout-note}
+## Fluid vs. Crystallised Intelligence
+Phase 1 (SimCSE) expands the model's domain *knowledge* — its fluid, general representations. Phase 2 (supervised pairs) would then train a specific retrieval *skill* on top of that richer foundation. The same corpus can serve both stages without conflict.
+:::
+
+# Evaluation Design
+
+```{python}
+#| eval: true
+#| echo: false
+def split_sentences(text):
+    return [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+
+def embed(model: SentenceTransformer, article: str) -> np.ndarray:
+    """Encode article sentence by sentence, return mean-pooled vector."""
+    sentences = split_sentences(article)
+    return np.mean(model.encode(sentences), axis=0)
+
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+```
+
+Evaluation follows two tracks:
+
+- **Intrinsic**: cosine similarity on synthetic positive/negative article pairs — tests whether the embedding space geometry is well-ordered.
+- **Extrinsic**: macro F1 of a logistic regression probe trained on frozen embeddings, for *sentiment* and *topic* classification.
+
+## Intrinsic Evaluation Set
+
+Because `gemma-embedding-300m` uses contextual subword representations, Word2Vec-style analogy tests are not applicable. Instead, we construct synthetic pairs via **back-translation** using [`facebook/nllb-200-distilled-600M`](https://huggingface.co/facebook/nllb-200-distilled-600M):
+
+- **Positive** — `n_pass=3, temp=1.0`: meaning preserved, phrasing varied.
+- **Negative** — `n_pass=3, temp=1.1`: semantic drift introduced through noise accumulation.
+
+A well-ordered model should score positive pairs higher than negative ones. The **gap** between the two means is the key metric.
+
+::: {.callout-tip}
+## Effect of Temperature and Passes
+At `temp=1.0`, the model consistently picks high-probability tokens and meaning is mostly preserved across passes. At `temp=1.1`, small token-level errors compound geometrically — three passes of slightly noisy translation produce meaningful semantic drift.
+:::
+
+```{python}
+#| label: translation-functions
+#| eval: false
+#| code-fold: false
+tokenizer_nllb = AutoTokenizer.from_pretrained("facebook/nllb-200-distilled-600M")
+model_nllb     = AutoModelForSeq2SeqLM.from_pretrained("facebook/nllb-200-distilled-600M")
+
+def translate_text(text, temp, top_p, src_lang, tgt_lang):
+    tokenizer_nllb.src_lang = src_lang
+    inputs = tokenizer_nllb(text, return_tensors="pt")
+    tokens = model_nllb.generate(
+        **inputs,
+        forced_bos_token_id=tokenizer_nllb.convert_tokens_to_ids(tgt_lang),
+        max_new_tokens=200,
+        do_sample=True, temperature=temp, top_p=top_p,
+    )
+    return tokenizer_nllb.batch_decode(tokens, skip_special_tokens=True)[0]
+
+def bi_translation(n_pass, text_to_translate, temp=1.0, top_p=0.95,
+                   src_lang="eng_Latn", tgt_lang="fra_Latn"):
+    original = deepcopy(text_to_translate)
+    for _ in range(n_pass):
+        sentences = split_sentences(text_to_translate)
+        fwd = [translate_text(s, temp, top_p, src_lang, tgt_lang) for s in sentences]
+        bwd = [translate_text(s, temp, top_p, tgt_lang, src_lang) for s in fwd]
+        text_to_translate = " ".join(bwd)
+    return original, text_to_translate
+```
+
+```{python}
+#| label: build-synth-pairs
+#| eval: false
+corpus_df     = pd.read_parquet(str(Path(STAGE2_DIR, "corpus_chunks.parquet")))
+chunks_sample = corpus_df.chunked_content.sample(n=50, random_state=25)
+
+synth_pair             = chunks_sample.reset_index()
+synth_pair["positive"] = synth_pair.chunked_content.apply(
+    lambda x: bi_translation(n_pass=3, text_to_translate=x, temp=1.0, top_p=0.99)[1]
+)
+synth_pair["negative"] = synth_pair.chunked_content.apply(
+    lambda x: bi_translation(n_pass=3, text_to_translate=x, temp=1.1, top_p=0.99)[1]
+)
+synth_pair.to_parquet(str(Path(REPO_ROOT, "notebook/stage2/results", "synth_chunks.parquet")))
+```
+
+A few examples from the constructed set:
+
+```{python}
+#| label: show-synth-examples
+#| eval: true
+synth_pair = pd.read_parquet(str(Path(REPO_ROOT, "notebook/stage2/results","synth_chunks.parquet")))
+
+for i, row in synth_pair.iterrows():
+    if i == 2:
+        break
+    print(f"ORIGINAL:\n{row['chunked_content']}\n")
+    print(f"POSITIVE (low-noise):\n{row['positive']}\n")
+    print(f"NEGATIVE (high-noise):\n{row['negative']}\n")
+    print("─" * 60)
+```
+
+# Training
+
+## Dataset
+
+```{python}
+#| label: load-corpus
+#| eval: true
+corpus_df = pd.read_parquet(str(Path(STAGE2_DIR, "corpus_chunks.parquet")))
+corpus_ds = Dataset.from_pandas(corpus_df)
+print(corpus_ds.features)
+print(f"\nTotal chunks: {len(corpus_ds):,}")
+```
+
+The SimCSE format is minimal — anchor and positive are identical; dropout handles the rest:
+
+```{python}
+#| label: build-training-dataset
+#| eval: false
+training_dataset = Dataset.from_dict({
+    "anchor":   corpus_ds["chunked_content"],
+    "positive": corpus_ds["chunked_content"],
+})
+```
+
+## Model & Hardware
+
+::: {.callout-warning}
+## Gated Model
+`google/embeddinggemma-300m` requires accepting Google's licence on Hugging Face, and a preview branch of `transformers`:
+
+```bash
+pip install git+https://github.com/huggingface/transformers@v4.56.0-Embedding-Gemma-preview
+```
+
+```python
+from huggingface_hub import login
+login()
+```
+:::
+
+```{python}
+#| label: device-setup
+#| eval: false
+device = (
+    "mps"  if torch.backends.mps.is_available() else
+    "cuda" if torch.cuda.is_available()          else
+    "cpu"
+)
+print(f"Training device: {device}")
+```
+
+```{python}
+#| label: load-model
+#| eval: false
+model = SentenceTransformer(
+    "google/embeddinggemma-300m",
+    model_card_data=SentenceTransformerModelCardData(
+        language="en",
+        license="apache-2.0",
+        model_name="EmbeddingGemma-300m — Anacode AI Trend Media (SimCSE)",
+    ),
+)
+```
+
+## Training Configuration
+
+```{python}
+#| label: training
+#| eval: false
+#| code-fold: false
+logging.basicConfig(
+    format="%(asctime)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+)
+
+loss     = MultipleNegativesRankingLoss(model)  # SimCSE by default
+run_name = "gemma-embedding-300m-simcse-ai-trend"
+
+args = SentenceTransformerTrainingArguments(
+    output_dir=f"notebook/stage2/models/{run_name}",
+    num_train_epochs=1,              # single pass — gentle domain nudge
+    per_device_train_batch_size=64,  # larger batch → more negatives → stronger signal
+    learning_rate=1e-5,
+    warmup_ratio=0.1,
+    max_grad_norm=1.0,               # gradient clipping
+    fp16=False,
+    bf16=False,
+    save_strategy="epoch",
+    save_total_limit=2,
+    logging_steps=50,
+    run_name=run_name,
+    report_to="codecarbon",          # CO₂ emission tracking
+)
+
+class NaNDetectorCallback(TrainerCallback):
+    """Halts training immediately if a NaN gradient is detected."""
+    def on_step_end(self, args, state, control, model=None, **kwargs):
+        for name, param in model.named_parameters():
+            if param.grad is not None and torch.isnan(param.grad).any():
+                print(f"NaN gradient at step {state.global_step} in {name}")
+                control.should_training_stop = True
+
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=args,
+    train_dataset=training_dataset,
+    loss=loss,
+    callbacks=[NaNDetectorCallback()],
+)
+trainer.train()
+model.save_pretrained(f"{str(REPO_ROOT)}/notebook/stage2/models/gemma-embedding-300-domain-adaptation")
+```
+
+## Training Curves
+
+```{python}
+#| label: parse-trainer-state
+#| eval: true
+#| echo: false
+with open(f"{str(REPO_ROOT)}/notebook/stage2/models/gemma-embedding-300-domain-adaptation/trainer_state.json") as f:
+    state = json.load(f)
+
+log_history = state["log_history"]
+train_logs  = [e for e in log_history if "loss" in e and "eval_loss" not in e]
+eval_logs   = [e for e in log_history if "eval_loss" in e]
+
+steps  = [e["step"]          for e in train_logs]
+losses = [e["loss"]          for e in train_logs]
+lrs    = [e["learning_rate"] for e in train_logs]
+epochs = [e["epoch"]         for e in train_logs]
+
+eval_steps  = [e["step"]      for e in eval_logs]
+eval_losses = [e["eval_loss"] for e in eval_logs]
+
+def ema(values, alpha=0.15):
+    smoothed, s = [], None
+    for v in values:
+        s = v if s is None else alpha * v + (1 - alpha) * s
+        smoothed.append(s)
+    return smoothed
+
+smoothed_loss = ema(losses)
+
+epoch_boundaries, prev_ep = [], 0
+for e in train_logs:
+    curr = int(e["epoch"])
+    if curr > prev_ep:
+        epoch_boundaries.append(e["step"])
+        prev_ep = curr
+
+total_steps  = state.get("max_steps", steps[-1])
+initial_loss = losses[0]
+final_loss   = losses[-1]
+min_loss     = min(losses)
+min_step     = steps[losses.index(min_loss)]
+improvement  = (initial_loss - final_loss) / initial_loss * 100
+```
+
+**Run summary:** `{python} f"{total_steps:,}"` steps · initial loss `{python} f"{initial_loss:.3f}"` · final loss `{python} f"{final_loss:.3f}"` · improvement `{python} f"{improvement:.1f}%"`.
+
+```{python}
+#| label: fig-loss-curve
+#| eval: true
+#| echo: false
+#| fig-cap: "Training loss over steps. Raw values (faint) and EMA-smoothed (solid). Dotted lines mark epoch boundaries."
+#| fig-width: 7
+#| fig-height: 3.2
+
+LOSS_CACHE = Path(REPO_ROOT / "notebook" / "stage2" / "results" / "plot_loss_curve.png")
+
+if not LOSS_CACHE.exists():
+    fig, ax = plt.subplots(figsize=(7, 3.2))
+    ax.plot(steps, losses, color=ACCENT, alpha=0.2, linewidth=0.8)
+    ax.plot(steps, smoothed_loss, color=ACCENT, linewidth=2.0, label="EMA loss")
+    if eval_logs:
+        ax.scatter(eval_steps, eval_losses, color=GREEN, s=40, zorder=5,
+                   label="Eval loss", marker="D")
+    for eb in epoch_boundaries:
+        ax.axvline(eb, color=AMBER, linewidth=1.0, linestyle=":", alpha=0.8)
+    ax.annotate(
+        f"min {min_loss:.3f}",
+        xy=(min_step, min_loss),
+        xytext=(min_step + total_steps * 0.06, min_loss + (initial_loss - min_loss) * 0.15),
+        fontsize=7.5, color=ACCENT,
+        arrowprops=dict(arrowstyle="->", color=ACCENT, lw=1.0),
+    )
+    ax.set_xlabel("Step"); ax.set_ylabel("Loss")
+    ax.set_title("Training Loss")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(LOSS_CACHE, dpi=150, bbox_inches="tight")
+    plt.show()
+else:
+    from IPython.display import Image, display
+    display(Image(str(LOSS_CACHE)))
+```
+
+```{python}
+#| label: fig-lr-schedule
+#| eval: true
+#| echo: false
+#| fig-cap: "Learning rate schedule — linear warmup then cosine decay."
+#| fig-width: 7
+#| fig-height: 2.6
+
+LR_CACHE = Path(REPO_ROOT / "notebook" / "stage2" / "results" / "plot_lr_schedule.png")
+
+if not LR_CACHE.exists():
+    fig, ax = plt.subplots(figsize=(7, 2.6))
+    ax.plot(steps, lrs, color=AMBER, linewidth=1.8)
+    ax.fill_between(steps, lrs, alpha=0.12, color=AMBER)
+    for eb in epoch_boundaries:
+        ax.axvline(eb, color=AMBER, linewidth=1.0, linestyle=":", alpha=0.6)
+    ax.set_xlabel("Step"); ax.set_ylabel("Learning Rate")
+    ax.set_title("Learning Rate Schedule")
+    ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:.1e}"))
+    fig.tight_layout()
+    fig.savefig(LR_CACHE, dpi=150, bbox_inches="tight")
+    plt.show()
+else:
+    from IPython.display import Image, display
+    display(Image(str(LR_CACHE)))
+```
+
+```{python}
+#| label: fig-loss-dist
+#| eval: true
+#| echo: false
+#| fig-cap: "Distribution of logged loss values over the full run."
+#| fig-width: 7
+#| fig-height: 2.6
+
+DIST_CACHE = Path(REPO_ROOT / "notebook" / "stage2" / "results" / "plot_loss_dist.png")
+
+if not DIST_CACHE.exists():
+    fig, ax = plt.subplots(figsize=(7, 2.6))
+    ax.hist(losses, bins=30, color=ACCENT, alpha=0.65, edgecolor="white", linewidth=0.4)
+    ax.axvline(np.mean(losses),   color=AMBER, linewidth=1.5, linestyle="--",
+               label=f"Mean   {np.mean(losses):.3f}")
+    ax.axvline(np.median(losses), color=GREEN, linewidth=1.5, linestyle="--",
+               label=f"Median {np.median(losses):.3f}")
+    ax.set_xlabel("Loss"); ax.set_ylabel("Frequency")
+    ax.set_title("Loss Distribution")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(DIST_CACHE, dpi=150, bbox_inches="tight")
+    plt.show()
+else:
+    from IPython.display import Image, display
+    display(Image(str(DIST_CACHE)))
+```
+
+# Evaluation
+
+```{python}
+#| label: load-models
+#| eval: true
+#| echo: false
+pretrained_gemma = SentenceTransformer("google/embeddinggemma-300m")
+finetuned_gemma  = SentenceTransformer.load(
+    f"{str(REPO_ROOT)}/notebook/stage2/models/gemma-embedding-300-domain-adaptation"
+)
+```
+
+## Intrinsic Performance
+
+```{python}
+#| label: intrinsic-compute
+#| eval: false
+synth_chunks = pd.read_parquet(str(Path(REPO_ROOT, "notebook", "stage2", "results", "synth_chunks.parquet")))
+intra_result = defaultdict(list)
+
+for i, row in synth_chunks.iterrows():
+    intra_result["origin_id"].append(i)
+    intra_result["origin"].append(row["chunked_content"])
+    for name, mdl in [("pretrained", pretrained_gemma), ("finetuned", finetuned_gemma)]:
+        origin = mdl.encode(row["chunked_content"])
+        pos    = mdl.encode(row["positive"])
+        neg    = mdl.encode(row["negative"])
+        intra_result[f"{name}_positive"].append(cosine_similarity(origin, pos))
+        intra_result[f"{name}_negative"].append(cosine_similarity(origin, neg))
+
+pd.DataFrame(intra_result).to_parquet(str(Path(REPO_ROOT, "notebook", "stage2", "results", "intrinsic_eval_result.parquet")))
+```
+
+```{python}
+#| label: load-intrinsic
+#| eval: true
+#| echo: false
+intrinsic = pd.read_parquet(str(Path(REPO_ROOT, "notebook", "stage2", "results",  "intrinsic_eval_result.parquet")))
+
+pre_pos = intrinsic.pretrained_positive.mean()
+pre_neg = intrinsic.pretrained_negative.mean()
+ft_pos  = intrinsic.finetuned_positive.mean()
+ft_neg  = intrinsic.finetuned_negative.mean()
+pre_gap = pre_pos - pre_neg
+ft_gap  = ft_pos  - ft_neg
+```
+
+```{python}
+#| label: fig-intrinsic-bars
+#| eval: true
+#| echo: false
+#| fig-cap: "Mean cosine similarity for positive and negative synthetic pairs. The gap (Δ) between the two bars is the key metric — a larger gap means the model better separates similar from dissimilar articles."
+#| fig-width: 6
+#| fig-height: 3.5
+
+IBAR_CACHE = Path(REPO_ROOT / "notebook" / "stage2" / "results" / "plot_intrinsic_bars.png")
+
+if not IBAR_CACHE.exists():
+    fig, ax = plt.subplots(figsize=(6, 3.5))
+
+    cats    = ["Pre · Positive", "Pre · Negative", "FT · Positive", "FT · Negative"]
+    values  = [pre_pos, pre_neg, ft_pos, ft_neg]
+    colors  = [GREEN, RED, GREEN, RED]
+    hatches = ["", "", "//", "//"]
+
+    bars = ax.bar(cats, values, color=colors, alpha=0.75,
+                  edgecolor="white", linewidth=0.5)
+    for bar, h in zip(bars, hatches):
+        bar.set_hatch(h)
+    for bar, val in zip(bars, values):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.004,
+                f"{val:.3f}", ha="center", va="bottom", fontsize=8.5)
+
+    # Gap annotations
+    for i_pair, (gap, label) in enumerate([(pre_gap, f"Δ {pre_gap:.3f}"),
+                                            (ft_gap,  f"Δ {ft_gap:.3f}")]):
+        x_pos = 0.5 + i_pair * 2
+        y0    = values[i_pair * 2 + 1]
+        y1    = values[i_pair * 2]
+        ax.annotate("", xy=(x_pos, y1), xytext=(x_pos, y0),
+                    arrowprops=dict(arrowstyle="<->", color=MUTED, lw=1.1))
+        ax.text(x_pos + 0.12, (y0 + y1) / 2, label,
+                fontsize=7.5, color=MUTED, va="center")
+
+    solid = mpatches.Patch(facecolor="grey", alpha=0.5, label="Pretrained")
+    hatch = mpatches.Patch(facecolor="grey", alpha=0.5, hatch="//", label="Fine-tuned")
+    ax.legend(handles=[solid, hatch])
+    ax.set_ylabel("Cosine Similarity")
+    ax.set_ylim(0, 1.1)
+    ax.set_title("Intrinsic Evaluation — Mean Pair Similarity")
+    fig.tight_layout()
+    fig.savefig(IBAR_CACHE, dpi=150, bbox_inches="tight")
+    plt.show()
+else:
+    from IPython.display import Image, display
+    display(Image(str(IBAR_CACHE)))
+```
+
+The overall similarity score of between original-positive pairs for the fine-tuned model is low.
+Moreover, it model achieves a positive-negative gap of `{python} f"{ft_gap:.3f}"` compared to `{python} f"{pre_gap:.3f}"` for the pretrained baseline — a clear regression in embedding space quality.
+
+::: {.callout-important}
+## Representation Regression
+
+The training disrupted the model's existing representations. The most likely causes are:
+
+1. **Learning rate too high.** `1e-5` over 436k chunks is a large cumulative parameter displacement for a model that is already well-trained contrastively.
+2. **Catastrophic forgetting.** General representations are overwritten by the narrow domain signal.
+3. **Weak contrastive signal.** AI/tech news is stylistically homogeneous, making in-batch SimCSE negatives trivially easy and producing shallow gradients.
+
+See @sec-lessons for a corrected recipe.
+:::
+
+## Extrinsic Performance
+
+Downstream evaluation uses a logistic regression classifier trained on frozen embeddings. Performance here directly reflects embedding quality, not classifier capacity.
+
+```{python}
+#| label: extrinsic-compute
+#| eval: false
+train = pd.read_parquet(str(Path(STAGE2_DIR, "train.parquet")))
+test  = pd.read_parquet(str(Path(STAGE2_DIR, "test.parquet")))
+
+X_train_pre = np.array([embed(pretrained_gemma, x) for x in train.full_content.values])
+X_test_pre  = np.array([embed(pretrained_gemma, x) for x in test.full_content.values])
+X_train_ft  = np.array([embed(finetuned_gemma,  x) for x in train.full_content.values])
+X_test_ft   = np.array([embed(finetuned_gemma,  x) for x in test.full_content.values])
+
+with open(str(Path(STAGE2_DIR, "gemmaembedding_eval_datasets.pkl")), "wb") as f:
+    pickle.dump({
+        "X_train_pre": X_train_pre, "X_test_pre": X_test_pre,
+        "X_train_ft":  X_train_ft,  "X_test_ft":  X_test_ft,
+    }, f)
+```
+
+```{python}
+#| label: load-extrinsic
+#| eval: true
+#| echo: false
+train = pd.read_parquet(str(Path(STAGE2_DIR, "train.parquet")))
+test  = pd.read_parquet(str(Path(STAGE2_DIR, "test.parquet")))
+
+with open(str(Path(STAGE2_DIR, "gemmaembedding_eval_datasets.pkl")), "rb") as f:
+    ds = pickle.load(f)
+
+X_train_pre = ds["X_train_pre"]; X_test_pre = ds["X_test_pre"]
+X_train_ft  = ds["X_train_ft"];  X_test_ft  = ds["X_test_ft"]
+results = {}
+```
+
+### Sentiment Analysis
+
+```{python}
+#| label: sentiment-clf
+#| eval: true
+y_train_sent = train.sentiment_label.values
+y_test_sent  = test.sentiment_label.values
+
+for name, X_tr, X_te in [
+    ("pretrained", X_train_pre, X_test_pre),
+    ("finetuned",  X_train_ft,  X_test_ft),
+]:
+    clf = LogisticRegression(max_iter=1000, random_state=SEED)
+    clf.fit(X_tr, y_train_sent)
+    y_pred = clf.predict(X_te)
+    results[f"{name}-sentiment"] = {
+        "macro_f1": f1_score(y_test_sent, y_pred, average="macro"),
+        "y_pred":   y_pred,
+    }
+    print(f"── {name} ──")
+    print(classification_report(y_test_sent, y_pred))
+```
+
+### Topic Classification
+
+```{python}
+#| label: topic-clf
+#| eval: true
+y_train_topic = train.topic_label.values
+y_test_topic  = test.topic_label.values
+
+is_train_ok = [not isinstance(v, float) for v in y_train_topic]
+is_test_ok  = [not isinstance(v, float) for v in y_test_topic]
+y_train_topic = y_train_topic[is_train_ok]
+y_test_topic  = y_test_topic[is_test_ok]
+
+for name, X_tr, X_te in [
+    ("pretrained", X_train_pre[is_train_ok], X_test_pre[is_test_ok]),
+    ("finetuned",  X_train_ft[is_train_ok],  X_test_ft[is_test_ok]),
+]:
+    clf = LogisticRegression(max_iter=1000, random_state=SEED)
+    clf.fit(X_tr, y_train_topic)
+    y_pred = clf.predict(X_te)
+    results[f"{name}-topic"] = {
+        "macro_f1": f1_score(y_test_topic, y_pred, average="macro"),
+        "y_pred":   y_pred,
+    }
+    print(f"── {name} ──")
+    print(classification_report(y_test_topic, y_pred))
+```
+
+### Summary
+
+```{python}
+#| label: fig-f1-comparison
+#| eval: true
+#| echo: false
+#| fig-cap: "Macro F1 comparison across both tasks. The pretrained model outperforms the fine-tuned variant on both."
+#| fig-width: 5
+#| fig-height: 3.2
+
+F1_CACHE = Path(REPO_ROOT / "notebook" / "stage2" / "results" / "plot_f1_comparison.png")
+
+if not F1_CACHE.exists():
+    fig, ax = plt.subplots(figsize=(5, 3.2))
+    tasks   = ["Sentiment", "Topic"]
+    pre_f1s = [results["pretrained-sentiment"]["macro_f1"],
+               results["pretrained-topic"]["macro_f1"]]
+    ft_f1s  = [results["finetuned-sentiment"]["macro_f1"],
+               results["finetuned-topic"]["macro_f1"]]
+
+    x, w = np.arange(len(tasks)), 0.32
+    b1 = ax.bar(x - w/2, pre_f1s, w, label="Pretrained",
+                color=ACCENT, alpha=0.85, edgecolor="white")
+    b2 = ax.bar(x + w/2, ft_f1s,  w, label="Fine-tuned",
+                color=RED, alpha=0.7, edgecolor="white", hatch="//")
+
+    for bar, val in zip(list(b1) + list(b2), pre_f1s + ft_f1s):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01,
+                f"{val:.3f}", ha="center", va="bottom", fontsize=8.5)
+
+    ax.set_xticks(x); ax.set_xticklabels(tasks)
+    ax.set_ylabel("Macro F1"); ax.set_ylim(0, 1.0)
+    ax.set_title("Extrinsic Evaluation — Macro F1 by Task")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(F1_CACHE, dpi=150, bbox_inches="tight")
+    plt.show()
+else:
+    from IPython.display import Image, display
+    display(Image(str(F1_CACHE)))
+```
+
+The pretrained `gemma-embedding-300m` achieves strong baselines — **0.78** macro F1 on sentiment and **0.758** on topic classification. The fine-tuned model underperforms on both, with the topic gap particularly pronounced (−0.319 points).
+
+The alignment between intrinsic and extrinsic regressions is telling: the model did not trade general representation quality for domain-specific gains. The degradation is uniform, confirming the training simply damaged the existing representations without adding anything useful.
+
+# Lessons Learned {#sec-lessons}
+
+::: {.callout-important}
+## What Went Wrong
+
+Three factors combined to cause the regression:
+
+1. **Learning rate too aggressive.** `1e-5` over 436,000 samples is a very large cumulative parameter displacement. For an already well-trained model, `1e-6` or lower is more appropriate.
+
+2. **Too much data for domain adaptation.** One full epoch over 436k chunks means ~6,800 gradient steps. Domain adaptation should be a nudge — 10–15% of the corpus with a hard step cap (`max_steps=2000`) would have been safer.
+
+3. **Homogeneous corpus.** AI/tech news articles share consistent register and vocabulary, making in-batch SimCSE negatives trivially easy and producing shallow gradients rather than genuine structural learning.
+:::
+
+## Corrected Recipe
+
+```python
+from sentence_transformers.losses import CachedMultipleNegativesRankingLoss
+
+args = SentenceTransformerTrainingArguments(
+    ...
+    learning_rate=5e-7,           # 20× lower than original
+    max_steps=2_000,              # hard cap — ~5% of original step count
+    per_device_train_batch_size=128,
+    batch_sampler=BatchSamplers.NO_DUPLICATES,
+    ...
+)
+loss = CachedMultipleNegativesRankingLoss(model, mini_batch_size=8)
+
+# Also: freeze the bottom half of transformer layers to prevent
+# catastrophic forgetting of general-purpose representations.
+```
