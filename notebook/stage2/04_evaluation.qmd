@@ -66,10 +66,22 @@ RoBERTa model applied to long-form journalism, the practical upper bound for any
 task is well below 1.0. The narrow spread of results (0.745–0.761) across very different
 architectures suggests all models are approaching this ceiling.
 
+## Topic Classification Comparison
+
+Qwen2.5-1.5B was fine-tuned for topic classification. This makes it more appropriate to compare Qwen not with TinyLlama or Gemma 2, but with the classical topic classification baselines from Stage 2. In the classical embedding chapter, Word2Vec and FastText achieved Macro-F1 scores of 0.776 and 0.773, respectively, on the same topic prediction task. The fine-tuned Qwen2.5-1.5B model achieved a Macro-F1 of 0.720.
+
+This means that, for this dataset and label definition, the classical embedding models outperformed Qwen2.5-1.5B on topic classification. A likely explanation is that the topic labels were derived from an upstream transformer-based topic modelling pipeline, while the classical models learned compact article-level structure very effectively through domain-specific co-occurrence patterns combined with a simple logistic regression classifier. Qwen still showed a strong improvement over its own baseline, but it did not surpass the best classical topic model.
+
+**Compact result summary**
+
+Word2Vec + LR → 0.776 Macro-F1
+FastText + LR → 0.773 Macro-F1
+Qwen2.5-1.5B → 0.720 Macro-F1
+
 ## Conclusion
 
-For AI trend detection in media texts, classical Word2Vec embeddings combined with logistic regression offer the best cost-performance ratio. Fine-tuned LLMs provide marginal improvements at substantially higher computational cost and carbon footprint. The choice between approaches should be guided by the deployment context: if inference speed, energy efficiency, and
-interpretability matter, classical models are the pragmatic choice. If marginal accuracy gains justify GPU infrastructure, compact fine-tuned LLMs are a viable alternative.
+For AI trend detection in media texts, classical Word2Vec embeddings combined with logistic regression offer the best cost-performance ratio. Fine-tuned LLMs provide marginal improvements at substantially higher computational cost and carbon footprint. The choice between approaches should be guided by the deployment context: if inference speed, energy efficiency, and interpretability matter, classical models are the pragmatic choice. If marginal accuracy gains justify GPU infrastructure, compact fine-tuned LLMs are a viable alternative.
+
 
 ## Insight Extraction: What Do the Embeddings Reveal About AI Trends?
 
