@@ -17,11 +17,13 @@ book:
 
     - part: "Part III: LLM Fine-Tuning"
       chapters:
+        - 03_introduction.qmd
         - 03_finetuning.qmd
+        - 03_finetuning_Qwen2_5-1_5B.qmd
         - 03_finetuning_gemma_embedding_300m.qmd
     - part: "Part IV: Evaluation"
       chapters:
-        - 04_evaluation.qmd
+        - 04_evaluation_revised.qmd
 
 format:
   html:
