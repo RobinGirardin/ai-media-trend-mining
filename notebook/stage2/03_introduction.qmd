@@ -1,0 +1,44 @@
+---
+title: "Introduction to Fine-Tunning"
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    toc-title: "Contents"
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    code-tools: true
+    fig-align: center
+    fig-dpi: 150
+    callout-appearance: minimal
+    smooth-scroll: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+  echo: true
+
+---
+
+Following the classical embedding models, the next stage of the project focuses on fine-tuning transformer-based models. The goal was to examine whether task-specific and domain-adaptive tuning could produce stronger representations and better downstream results than the baseline approaches alone. To do so, the project includes four tuned models/experiments spanning sentiment classification, topic classification, and embedding adaptation.
+
+So the project includes four tuned models/experiments, not just the three classifier models:
+
+**TinyLlama 1.1B**
+*Tuned for sentiment classification*
+Purpose: classify articles into negative, neutral, or positive sentiment.
+
+**Gemma 2 2B**
+*Tuned for sentiment classification*
+Purpose: perform the same 3-class sentiment task and compare against TinyLlama.
+
+**Qwen2.5-1.5B**
+Tuned for topic classification
+Purpose: assign each article to one of the predefined topic categories in the AI media dataset.
+
+**google/embeddinggemma-300m**
+*Tuned for domain-adaptive text embeddings using unsupervised SimCSE*
+Purpose: improve the semantic embedding space for AI and technology media text, with the goal of supporting better retrieval quality and stronger downstream performance on tasks such as classification or future RAG retrieval.
