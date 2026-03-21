@@ -1,0 +1,1614 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.27">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>2&nbsp; Classical Embeddings – Computational Language Technologies - Stage 2</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.5.1/dist/jquery.min.js" integrity="sha384-ZvpUoO/+PpLXR1lu4jmpXWu80pZlYUAfxl5NsBMWOEPSjUn/6Z/hRTt8+pR6L4N2" crossorigin="anonymous"></script><script src="site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="site_libs/quarto-nav/headroom.min.js"></script>
+<script src="site_libs/clipboard/clipboard.min.js"></script>
+<script src="site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="site_libs/quarto-search/fuse.min.js"></script>
+<script src="site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="./">
+<link href="./03_introduction.html" rel="next">
+<link href="./01_data.html" rel="prev">
+<script src="site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="site_libs/quarto-html/popper.min.js"></script>
+<script src="site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="site_libs/quarto-html/anchor.min.js"></script>
+<link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-ed96de9b727972fe78a7b5d16c58bf87.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="site_libs/bootstrap/bootstrap-27c261d06b905028a18691de25d09dde.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<script src="https://cdn.jsdelivr.net/npm/requirejs@2.3.6/require.min.js" integrity="sha384-c9c+LnTbwQ3aujuU7ULEPVvgLs+Fn6fJUvIGTsuu1ZcCf11fiEubah0ttpca4ntM sha384-6V1/AdqZRWk1KAlWbKBlGhN7VG4iE/yAZcO6NZPMF8od0vukrvr0tg4qY6NSrItx" crossorigin="anonymous"></script>
+
+<script type="application/javascript">define('jquery', [],function() {return window.jQuery;})</script>
+
+
+</head>
+
+<body class="nav-sidebar floating quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./02_classical.html">Part II: Classical Embeddings</a></li><li class="breadcrumb-item"><a href="./02_classical.html"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Classical Embeddings</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="Search" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="./">Computational Language Technologies - Stage 2</a> 
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="Search"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Preface</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">Part I: Data Preparation</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./01_data.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Data Preparation</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true">
+ <span class="menu-text">Part II: Classical Embeddings</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./02_classical.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Classical Embeddings</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true">
+ <span class="menu-text">Part III: LLM Fine-Tuning</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./03_introduction.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Introduction to Fine-Tunning</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./03_finetuning.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Fine-Tuning Compact LLMs for Sentiment Classification</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./03_finetuning_Qwen2_5-1_5B.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Fine-Tuning Qwen2.5-1.5B for Topic Classification</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./03_finetuning_gemma_embedding_300m.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">Fine-Tuning Gemma Embedding 300M</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="true">
+ <span class="menu-text">Part IV: Evaluation</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./04_evaluation.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">7</span>&nbsp; <span class="chapter-title">Comparative Evaluation</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./04_evaluation_revised.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">8</span>&nbsp; <span class="chapter-title">Comparative Evaluation</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#classical-embeddings" id="toc-classical-embeddings" class="nav-link active" data-scroll-target="#classical-embeddings"><span class="header-section-number">3</span> Classical Embeddings</a>
+  <ul class="collapse">
+  <li><a href="#training" id="toc-training" class="nav-link" data-scroll-target="#training"><span class="header-section-number">3.1</span> Training</a></li>
+  <li><a href="#intrinsic-evaluation" id="toc-intrinsic-evaluation" class="nav-link" data-scroll-target="#intrinsic-evaluation"><span class="header-section-number">3.2</span> Intrinsic Evaluation</a>
+  <ul class="collapse">
+  <li><a href="#nearest-neighbours" id="toc-nearest-neighbours" class="nav-link" data-scroll-target="#nearest-neighbours"><span class="header-section-number">3.2.1</span> Nearest Neighbours</a></li>
+  <li><a href="#umap-visualisation" id="toc-umap-visualisation" class="nav-link" data-scroll-target="#umap-visualisation"><span class="header-section-number">3.2.2</span> UMAP Visualisation</a></li>
+  <li><a href="#clustering-quality" id="toc-clustering-quality" class="nav-link" data-scroll-target="#clustering-quality"><span class="header-section-number">3.2.3</span> Clustering Quality</a></li>
+  </ul></li>
+  <li><a href="#extrinsic-evaluation" id="toc-extrinsic-evaluation" class="nav-link" data-scroll-target="#extrinsic-evaluation"><span class="header-section-number">3.3</span> Extrinsic Evaluation</a>
+  <ul class="collapse">
+  <li><a href="#cross-validation" id="toc-cross-validation" class="nav-link" data-scroll-target="#cross-validation"><span class="header-section-number">3.3.1</span> Cross Validation</a></li>
+  <li><a href="#sentiment-classification" id="toc-sentiment-classification" class="nav-link" data-scroll-target="#sentiment-classification"><span class="header-section-number">3.3.2</span> Sentiment Classification</a></li>
+  <li><a href="#topic-classification" id="toc-topic-classification" class="nav-link" data-scroll-target="#topic-classification"><span class="header-section-number">3.3.3</span> Topic Classification</a></li>
+  <li><a href="#minilm-baseline" id="toc-minilm-baseline" class="nav-link" data-scroll-target="#minilm-baseline"><span class="header-section-number">3.3.4</span> MiniLM Baseline</a></li>
+  </ul></li>
+  </ul></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./02_classical.html">Part II: Classical Embeddings</a></li><li class="breadcrumb-item"><a href="./02_classical.html"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Classical Embeddings</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Classical Embeddings</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="classical-embeddings" class="level1" data-number="3">
+<h1 data-number="3"><span class="header-section-number">3</span> Classical Embeddings</h1>
+<p>This chapter trains Word2Vec and FastText models on the tokenized article chunks from Stage 1, evaluates them intrinsically via nearest-neighbour inspection and UMAP visualisation, and extrinsically via sentiment and topic classification.</p>
+<div id="imports" class="cell" data-execution_count="1">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> sys</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>sys.setrecursionlimit(<span class="dv">10000</span>)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> warnings</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> gensim.models <span class="im">import</span> Word2Vec, FastText</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.linear_model <span class="im">import</span> LogisticRegression</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.metrics <span class="im">import</span> classification_report, f1_score</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> umap</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>warnings.filterwarnings(<span class="st">"ignore"</span>)</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="co"># Resolve repo root: works both interactively and during quarto render</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>_cwd <span class="op">=</span> Path.cwd()</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>REPO_ROOT <span class="op">=</span> _cwd <span class="cf">if</span> (_cwd <span class="op">/</span> <span class="st">"data"</span>).exists() <span class="cf">else</span> _cwd.parents[<span class="dv">1</span>]</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>STAGE1_DIR <span class="op">=</span> REPO_ROOT <span class="op">/</span> <span class="st">"data/processed"</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>STAGE2_DIR <span class="op">=</span> REPO_ROOT <span class="op">/</span> <span class="st">"data/processed/stage2"</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>SEED <span class="op">=</span> <span class="dv">42</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div id="load-data" class="cell" data-execution_count="2">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Training corpus: tokenized paragraph chunks</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>corpus <span class="op">=</span> pd.read_parquet(STAGE2_DIR <span class="op">/</span> <span class="st">"corpus_chunks.parquet"</span>)</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>corpus[<span class="st">"tokens"</span>] <span class="op">=</span> corpus[<span class="st">"tokens"</span>].<span class="bu">apply</span>(<span class="bu">eval</span>)</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Evaluation splits: article-level with sentiment and topic labels</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>train <span class="op">=</span> pd.read_parquet(STAGE2_DIR <span class="op">/</span> <span class="st">"train.parquet"</span>)</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>test  <span class="op">=</span> pd.read_parquet(STAGE2_DIR <span class="op">/</span> <span class="st">"test.parquet"</span>)</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>train[<span class="st">"tokens"</span>] <span class="op">=</span> train[<span class="st">"tokens"</span>].<span class="bu">apply</span>(<span class="bu">eval</span>)</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>test[<span class="st">"tokens"</span>]  <span class="op">=</span> test[<span class="st">"tokens"</span>].<span class="bu">apply</span>(<span class="bu">eval</span>)</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Token sequences for Word2Vec / FastText training</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>sentences <span class="op">=</span> corpus[<span class="st">"tokens"</span>].tolist()</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Training corpus : </span><span class="sc">{</span><span class="bu">len</span>(sentences)<span class="sc">:,}</span><span class="ss"> sequences"</span>)</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Train split     : </span><span class="sc">{</span><span class="bu">len</span>(train)<span class="sc">:,}</span><span class="ss"> articles"</span>)</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Test split      : </span><span class="sc">{</span><span class="bu">len</span>(test)<span class="sc">:,}</span><span class="ss"> articles"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Training corpus : 436,038 sequences
+Train split     : 13,053 articles
+Test split      : 3,264 articles</code></pre>
+</div>
+</div>
+<section id="training" class="level2" data-number="3.1">
+<h2 data-number="3.1" class="anchored" data-anchor-id="training"><span class="header-section-number">3.1</span> Training</h2>
+<p>We train both models on the full chunk corpus with identical hyperparameters: 300-dimensional vectors, skip-gram architecture (<code>sg=1</code>), window size 5, minimum word count 5.</p>
+<div id="train-word2vec" class="cell" data-execution_count="3">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Skip-gram Word2Vec (sg=1), 300 dimensions, window=5, min_count=5</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>w2v_model <span class="op">=</span> Word2Vec(</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    sentences<span class="op">=</span>sentences,</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    vector_size<span class="op">=</span><span class="dv">300</span>,</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    window<span class="op">=</span><span class="dv">5</span>,</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    min_count<span class="op">=</span><span class="dv">5</span>,</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    sg<span class="op">=</span><span class="dv">1</span>,</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    seed<span class="op">=</span>SEED,</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    workers<span class="op">=</span><span class="dv">4</span>,</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>w2v_model.save(<span class="bu">str</span>(STAGE2_DIR <span class="op">/</span> <span class="st">"word2vec.model"</span>))</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Word2Vec vocabulary size : </span><span class="sc">{</span><span class="bu">len</span>(w2v_model.wv)<span class="sc">:,}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stderr">
+<pre><code>Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'</code></pre>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Word2Vec vocabulary size : 46,585</code></pre>
+</div>
+</div>
+<div id="train-fasttext" class="cell" data-execution_count="4">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># FastText with same hyperparameters - additionally handles OOV via subword n-grams</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>ft_model <span class="op">=</span> FastText(</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    sentences<span class="op">=</span>sentences,</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>    vector_size<span class="op">=</span><span class="dv">300</span>,</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    window<span class="op">=</span><span class="dv">5</span>,</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>    min_count<span class="op">=</span><span class="dv">5</span>,</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>    sg<span class="op">=</span><span class="dv">1</span>,</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>    seed<span class="op">=</span>SEED,</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>    workers<span class="op">=</span><span class="dv">4</span>,</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>ft_model.save(<span class="bu">str</span>(STAGE2_DIR <span class="op">/</span> <span class="st">"fasttext.model"</span>))</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"FastText vocabulary size : </span><span class="sc">{</span><span class="bu">len</span>(ft_model.wv)<span class="sc">:,}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stderr">
+<pre><code>Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'
+Exception ignored in: 'gensim.models.word2vec_inner.our_dot_float'</code></pre>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>FastText vocabulary size : 46,585</code></pre>
+</div>
+</div>
+<div id="load-models" class="cell" data-execution_count="5">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>w2v_model <span class="op">=</span> Word2Vec.load(<span class="bu">str</span>(STAGE2_DIR <span class="op">/</span> <span class="st">"word2vec.model"</span>))</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>ft_model  <span class="op">=</span> FastText.load(<span class="bu">str</span>(STAGE2_DIR <span class="op">/</span> <span class="st">"fasttext.model"</span>))</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Word2Vec vocabulary size : </span><span class="sc">{</span><span class="bu">len</span>(w2v_model.wv)<span class="sc">:,}</span><span class="ss">"</span>)</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"FastText vocabulary size : </span><span class="sc">{</span><span class="bu">len</span>(ft_model.wv)<span class="sc">:,}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Word2Vec vocabulary size : 46,585
+FastText vocabulary size : 46,585</code></pre>
+</div>
+</div>
+</section>
+<section id="intrinsic-evaluation" class="level2" data-number="3.2">
+<h2 data-number="3.2" class="anchored" data-anchor-id="intrinsic-evaluation"><span class="header-section-number">3.2</span> Intrinsic Evaluation</h2>
+<section id="nearest-neighbours" class="level3" data-number="3.2.1">
+<h3 data-number="3.2.1" class="anchored" data-anchor-id="nearest-neighbours"><span class="header-section-number">3.2.1</span> Nearest Neighbours</h3>
+<p>We inspect the 10 nearest neighbours for a set of AI-domain seed words to verify that the models have learned meaningful semantic relationships.</p>
+<div id="nearest-neighbours" class="cell" data-execution_count="6">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>SEED_WORDS <span class="op">=</span> [</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">"openai"</span>, <span class="st">"deepseek"</span>, <span class="st">"transformer"</span>, <span class="st">"hallucination"</span>,</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"finetune"</span>, <span class="st">"benchmark"</span>, <span class="st">"inference"</span>, <span class="st">"regulation"</span>,</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"robotics"</span>, <span class="st">"quantum"</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>]</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> word <span class="kw">in</span> SEED_WORDS:</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"</span><span class="ch">\n</span><span class="ss">── </span><span class="sc">{</span>word<span class="sc">}</span><span class="ss"> ──"</span>)</span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> model_name, model <span class="kw">in</span> [(<span class="st">"W2V"</span>, w2v_model), (<span class="st">"FT"</span>, ft_model)]:</span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> word <span class="kw">in</span> model.wv:</span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>            neighbours <span class="op">=</span> [w <span class="cf">for</span> w, _ <span class="kw">in</span> model.wv.most_similar(word, topn<span class="op">=</span><span class="dv">5</span>)]</span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>            <span class="bu">print</span>(<span class="ss">f"  </span><span class="sc">{</span>model_name<span class="sc">}</span><span class="ss">: </span><span class="sc">{</span><span class="st">', '</span><span class="sc">.</span>join(neighbours)<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">else</span>:</span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>            <span class="bu">print</span>(<span class="ss">f"  </span><span class="sc">{</span>model_name<span class="sc">}</span><span class="ss">: OOV"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+── openai ──
+  W2V: anthropic, openais, altman, sutskever, claude
+  FT: openais, anthropic, altman, anthropics, openapi
+
+── deepseek ──
+  W2V: kimi, qwq, prover, alibaba, rivaled
+  FT: deepseeks, deepseq, deepset, deepsearch, deepsparse
+
+── transformer ──
+  W2V: mamba, vit, cptr, swin, siglip
+  FT: sentencetransformers, gqwformer, matformer, platformer, xxl
+
+── hallucination ──
+  W2V: hallucinated, hallucinate, hallucinating, factual, hallucinates
+  FT: hallucinating, hallucinated, hallucinate, hallucinates, hallucinatory
+
+── finetune ──
+  W2V: layerskip, tftrainer, pretrain, timit, sfttrainer
+  FT: finetuned, finetuning, fine, pretrainedmodel, fineweb
+
+── benchmark ──
+  W2V: livecodebench, mmlu, mmmu, humaneval, simpleqa
+  FT: benchmarked, benchmarking, bench, ocrbench, benchtop
+
+── inference ──
+  W2V: jetstream, inferencing, maxdiffusion, nxd, deepsparse
+  FT: minference, inferenceclient, inferencing, inferentia, inferential
+
+── regulation ──
+  W2V: ccpa, legislation, complying, sarbanes, oxley
+  FT: overregulation, regulating, deregulation, autoregulation, regulate
+
+── robotics ──
+  W2V: robot, humanoid, neura, galbot, hillbot
+  FT: massrobotics, smartrobotics, anybotics, hivebotics, roboticists
+
+── quantum ──
+  W2V: quera, pasqal, superconducting, annealing, classical
+  FT: cuquantum, bahquantum, freequantum, quantumctek, psiquantum</code></pre>
+</div>
+</div>
+<p><strong>Word2Vec</strong> captures thematic and semantic relationships well. <code>openai</code> maps to <code>anthropic, altman, chatgpt, claude</code> - its closest competitors and associated persons. <code>deepseek</code> retrieves <code>kimi, qwq, doubao</code>, all Chinese AI models released in the same period. <code>hallucination</code> groups with <code>hallucinated, hallucinate, factually</code> and <code>regulation</code> with <code>legislation, ccpa, stricter</code> - both reflecting coherent domain-specific clusters. <code>benchmark</code> correctly retrieves established evaluation suites such as <code>humaneval</code> and <code>mmlu</code>.</p>
+<p><strong>FastText</strong> also produces meaningful neighbours, but its results are strongly shaped by subword n-gram similarity. <code>hallucination</code> retrieves <code>hallucinatory, hallucinates</code> and <code>regulation</code> retrieves <code>overregulation, deregulation, regulate</code> - morphological variants that share the same stem. For rare or compound terms, FastText generalises well through subwords: <code>inference</code> maps to <code>minference, inferencing, inferentia</code>, reflecting both the concept and its technical derivatives.</p>
+<p><strong>Comparison:</strong> The two models reflect their architectural differences clearly. Word2Vec excels at capturing thematic proximity - grouping entities, products and concepts that co-occur in similar contexts. FastText complements this with morphological awareness, producing richer neighbourhoods for inflected and compound forms. For a technical domain like AI media, where new compound terms and brand names appear frequently, FastText’s subword generalisation is a practical advantage - particularly for out-of-vocabulary words, which Word2Vec cannot handle at all.</p>
+</section>
+<section id="umap-visualisation" class="level3" data-number="3.2.2">
+<h3 data-number="3.2.2" class="anchored" data-anchor-id="umap-visualisation"><span class="header-section-number">3.2.2</span> UMAP Visualisation</h3>
+<p>We project word vectors into 2D using UMAP to inspect the global structure of the learned embedding space. The first plot shows the top 2,000 most frequent vocabulary items to give an overview of how the model organises the full corpus vocabulary. The second plot focuses on the seed words from the nearest-neighbour analysis and their closest neighbours, making thematic clusters directly visible.</p>
+<div id="cell-umap-global" class="cell" data-execution_count="7">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Top 2000 words by frequency</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>vocab_words <span class="op">=</span> [w <span class="cf">for</span> w <span class="kw">in</span> w2v_model.wv.index_to_key[:<span class="dv">2000</span>]]</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>w2v_vectors <span class="op">=</span> np.array([w2v_model.wv[w] <span class="cf">for</span> w <span class="kw">in</span> vocab_words])</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>reducer <span class="op">=</span> umap.UMAP(n_components<span class="op">=</span><span class="dv">2</span>, random_state<span class="op">=</span>SEED, n_neighbors<span class="op">=</span><span class="dv">15</span>, min_dist<span class="op">=</span><span class="fl">0.1</span>)</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>embedding_2d <span class="op">=</span> reducer.fit_transform(w2v_vectors)</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">14</span>, <span class="dv">10</span>))</span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>ax.scatter(embedding_2d[:, <span class="dv">0</span>], embedding_2d[:, <span class="dv">1</span>], s<span class="op">=</span><span class="dv">5</span>, alpha<span class="op">=</span><span class="fl">0.5</span>)</span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i, word <span class="kw">in</span> <span class="bu">enumerate</span>(vocab_words[:<span class="dv">100</span>]):</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>    ax.annotate(word, embedding_2d[i], fontsize<span class="op">=</span><span class="dv">10</span>, alpha<span class="op">=</span><span class="fl">0.8</span>)</span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> spine <span class="kw">in</span> ax.spines.values():</span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>    spine.set_visible(<span class="va">True</span>)</span>
+<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a>    spine.set_linewidth(<span class="fl">0.8</span>)</span>
+<span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a>    spine.set_color(<span class="st">"black"</span>)</span>
+<span id="cb14-18"><a href="#cb14-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-19"><a href="#cb14-19" aria-hidden="true" tabindex="-1"></a>ax.set_title(<span class="st">"Word2Vec - UMAP projection (top 2,000 words)"</span>)</span>
+<span id="cb14-20"><a href="#cb14-20" aria-hidden="true" tabindex="-1"></a>ax.set_xticks([])</span>
+<span id="cb14-21"><a href="#cb14-21" aria-hidden="true" tabindex="-1"></a>ax.set_yticks([])</span>
+<span id="cb14-22"><a href="#cb14-22" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb14-23"><a href="#cb14-23" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="02_classical_files/figure-html/umap-global-output-1.png" id="umap-global" width="1334" height="950" class="figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>The global projection reveals a broadly distributed vocabulary with recognisable thematic regions: financial and business terms (<code>stock</code>, <code>market</code>, <code>investment</code>) cluster to the right, while technical AI terms (<code>model</code>, <code>learning</code>, <code>machine</code>, <code>platform</code>) form a denser region to the left. However, many generic words remain visible in the centre, reflecting their broad co-occurrence across all topics.</p>
+<p>To obtain a cleaner view of the domain-specific structure, we restrict the second plot to the seed words and their five nearest neighbours as identified above.</p>
+<div id="cell-umap-focused" class="cell" data-execution_count="8">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Collect seed words and their W2V nearest neighbours</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>focused_words <span class="op">=</span> <span class="bu">set</span>(SEED_WORDS)</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> word <span class="kw">in</span> SEED_WORDS:</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> word <span class="kw">in</span> w2v_model.wv:</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>        neighbours <span class="op">=</span> [w <span class="cf">for</span> w, _ <span class="kw">in</span> w2v_model.wv.most_similar(word, topn<span class="op">=</span><span class="dv">5</span>)]</span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>        focused_words.update(neighbours)</span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>focused_words <span class="op">=</span> [w <span class="cf">for</span> w <span class="kw">in</span> focused_words <span class="cf">if</span> w <span class="kw">in</span> w2v_model.wv]</span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>focused_vectors <span class="op">=</span> np.array([w2v_model.wv[w] <span class="cf">for</span> w <span class="kw">in</span> focused_words])</span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a>reducer_focused <span class="op">=</span> umap.UMAP(n_components<span class="op">=</span><span class="dv">2</span>, random_state<span class="op">=</span>SEED, n_neighbors<span class="op">=</span><span class="dv">5</span>, min_dist<span class="op">=</span><span class="fl">0.1</span>)</span>
+<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a>embedding_focused <span class="op">=</span> reducer_focused.fit_transform(focused_vectors)</span>
+<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-14"><a href="#cb15-14" aria-hidden="true" tabindex="-1"></a>colors <span class="op">=</span> [<span class="st">"#e63946"</span> <span class="cf">if</span> w <span class="kw">in</span> SEED_WORDS <span class="cf">else</span> <span class="st">"#457b9d"</span> <span class="cf">for</span> w <span class="kw">in</span> focused_words]</span>
+<span id="cb15-15"><a href="#cb15-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-16"><a href="#cb15-16" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">12</span>, <span class="dv">8</span>))</span>
+<span id="cb15-17"><a href="#cb15-17" aria-hidden="true" tabindex="-1"></a>ax.scatter(embedding_focused[:, <span class="dv">0</span>], embedding_focused[:, <span class="dv">1</span>], c<span class="op">=</span>colors, s<span class="op">=</span><span class="dv">40</span>, alpha<span class="op">=</span><span class="fl">0.8</span>)</span>
+<span id="cb15-18"><a href="#cb15-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-19"><a href="#cb15-19" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i, word <span class="kw">in</span> <span class="bu">enumerate</span>(focused_words):</span>
+<span id="cb15-20"><a href="#cb15-20" aria-hidden="true" tabindex="-1"></a>    ax.annotate(word, embedding_focused[i], fontsize<span class="op">=</span><span class="dv">11</span>, alpha<span class="op">=</span><span class="fl">0.9</span>)</span>
+<span id="cb15-21"><a href="#cb15-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-22"><a href="#cb15-22" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> spine <span class="kw">in</span> ax.spines.values():</span>
+<span id="cb15-23"><a href="#cb15-23" aria-hidden="true" tabindex="-1"></a>    spine.set_visible(<span class="va">True</span>)</span>
+<span id="cb15-24"><a href="#cb15-24" aria-hidden="true" tabindex="-1"></a>    spine.set_linewidth(<span class="fl">0.8</span>)</span>
+<span id="cb15-25"><a href="#cb15-25" aria-hidden="true" tabindex="-1"></a>    spine.set_color(<span class="st">"black"</span>)</span>
+<span id="cb15-26"><a href="#cb15-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-27"><a href="#cb15-27" aria-hidden="true" tabindex="-1"></a>ax.set_title(<span class="st">"Word2Vec - UMAP projection (seed words and nearest neighbours)"</span>)</span>
+<span id="cb15-28"><a href="#cb15-28" aria-hidden="true" tabindex="-1"></a>ax.set_xticks([])</span>
+<span id="cb15-29"><a href="#cb15-29" aria-hidden="true" tabindex="-1"></a>ax.set_yticks([])</span>
+<span id="cb15-30"><a href="#cb15-30" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb15-31"><a href="#cb15-31" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="02_classical_files/figure-html/umap-focused-output-1.png" id="umap-focused" width="1128" height="758" class="figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>The focused projection confirms the thematic clusters observed in the nearest-neighbour analysis. Seed words (red) are consistently surrounded by their domain-relevant neighbours (blue), with clear separation between clusters such as AI models and companies, hardware and inference, and regulatory vocabulary.</p>
+</section>
+<section id="clustering-quality" class="level3" data-number="3.2.3">
+<h3 data-number="3.2.3" class="anchored" data-anchor-id="clustering-quality"><span class="header-section-number">3.2.3</span> Clustering Quality</h3>
+<p>To quantify the cluster structure visible in the UMAP projections, we apply K-Means (k=10, matching the number of topic classes) to the document embeddings computed from both models, and report the <strong>Silhouette Score</strong> - a standard metric for clustering quality ranging from -1 (poor) to +1 (perfect separation). A positive score indicates that documents within a cluster are more similar to each other than to documents in neighbouring clusters.</p>
+<div id="cell-clustering-quality" class="cell" data-execution_count="9">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.cluster <span class="im">import</span> KMeans</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.metrics <span class="im">import</span> silhouette_score</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.preprocessing <span class="im">import</span> normalize</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Compute document embeddings from training split (same mean-pooling as extrinsic evaluation)</span></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> mean_pooling_local(tokens, model):</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>    vectors <span class="op">=</span> [model.wv[t] <span class="cf">for</span> t <span class="kw">in</span> tokens <span class="cf">if</span> t <span class="kw">in</span> model.wv]</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> np.mean(vectors, axis<span class="op">=</span><span class="dv">0</span>) <span class="cf">if</span> vectors <span class="cf">else</span> np.zeros(model.vector_size)</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>X_w2v_cl <span class="op">=</span> np.array([mean_pooling_local(t, w2v_model) <span class="cf">for</span> t <span class="kw">in</span> train[<span class="st">"tokens"</span>]])</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a>X_ft_cl  <span class="op">=</span> np.array([mean_pooling_local(t, ft_model)  <span class="cf">for</span> t <span class="kw">in</span> train[<span class="st">"tokens"</span>]])</span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a><span class="co"># Normalise to unit length before clustering (cosine similarity)</span></span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true" tabindex="-1"></a>X_w2v_norm <span class="op">=</span> normalize(X_w2v_cl)</span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true" tabindex="-1"></a>X_ft_norm  <span class="op">=</span> normalize(X_ft_cl)</span>
+<span id="cb16-16"><a href="#cb16-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-17"><a href="#cb16-17" aria-hidden="true" tabindex="-1"></a>k <span class="op">=</span> <span class="dv">10</span>  <span class="co"># matches number of topic classes</span></span>
+<span id="cb16-18"><a href="#cb16-18" aria-hidden="true" tabindex="-1"></a>results_clustering <span class="op">=</span> {}</span>
+<span id="cb16-19"><a href="#cb16-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-20"><a href="#cb16-20" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> name, X <span class="kw">in</span> [(<span class="st">"Word2Vec"</span>, X_w2v_norm), (<span class="st">"FastText"</span>, X_ft_norm)]:</span>
+<span id="cb16-21"><a href="#cb16-21" aria-hidden="true" tabindex="-1"></a>    km <span class="op">=</span> KMeans(n_clusters<span class="op">=</span>k, random_state<span class="op">=</span>SEED, n_init<span class="op">=</span><span class="dv">10</span>)</span>
+<span id="cb16-22"><a href="#cb16-22" aria-hidden="true" tabindex="-1"></a>    labels <span class="op">=</span> km.fit_predict(X)</span>
+<span id="cb16-23"><a href="#cb16-23" aria-hidden="true" tabindex="-1"></a>    score <span class="op">=</span> silhouette_score(X, labels, metric<span class="op">=</span><span class="st">"cosine"</span>, sample_size<span class="op">=</span><span class="dv">5000</span>, random_state<span class="op">=</span>SEED)</span>
+<span id="cb16-24"><a href="#cb16-24" aria-hidden="true" tabindex="-1"></a>    results_clustering[name] <span class="op">=</span> score</span>
+<span id="cb16-25"><a href="#cb16-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-26"><a href="#cb16-26" aria-hidden="true" tabindex="-1"></a>df_sil <span class="op">=</span> pd.DataFrame({</span>
+<span id="cb16-27"><a href="#cb16-27" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Model"</span>:           <span class="bu">list</span>(results_clustering.keys()),</span>
+<span id="cb16-28"><a href="#cb16-28" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Silhouette Score"</span>: [<span class="ss">f"</span><span class="sc">{</span>v<span class="sc">:.4f}</span><span class="ss">"</span> <span class="cf">for</span> v <span class="kw">in</span> results_clustering.values()],</span>
+<span id="cb16-29"><a href="#cb16-29" aria-hidden="true" tabindex="-1"></a>    <span class="st">"k"</span>:               [k] <span class="op">*</span> <span class="bu">len</span>(results_clustering),</span>
+<span id="cb16-30"><a href="#cb16-30" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb16-31"><a href="#cb16-31" aria-hidden="true" tabindex="-1"></a>display(df_sil.style</span>
+<span id="cb16-32"><a href="#cb16-32" aria-hidden="true" tabindex="-1"></a>    .hide(axis<span class="op">=</span><span class="st">"index"</span>) </span>
+<span id="cb16-33"><a href="#cb16-33" aria-hidden="true" tabindex="-1"></a>    .set_properties(<span class="op">**</span>{<span class="st">"text-align"</span>: <span class="st">"center"</span>})</span>
+<span id="cb16-34"><a href="#cb16-34" aria-hidden="true" tabindex="-1"></a>    .set_table_styles([{<span class="st">"selector"</span>: <span class="st">"th"</span>, <span class="st">"props"</span>: [(<span class="st">"text-align"</span>, <span class="st">"center"</span>), (<span class="st">"background-color"</span>, <span class="st">"#f0f0f0"</span>)]}])</span>
+<span id="cb16-35"><a href="#cb16-35" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div id="clustering-quality" class="cell-output cell-output-display">
+<style type="text/css">
+#T_06e83 th {
+  text-align: center;
+  background-color: #f0f0f0;
+}
+#T_06e83_row0_col0, #T_06e83_row0_col1, #T_06e83_row0_col2, #T_06e83_row1_col0, #T_06e83_row1_col1, #T_06e83_row1_col2 {
+  text-align: center;
+}
+</style>
+
+<table id="T_06e83" class="caption-top table table-sm table-striped small">
+<thead>
+<tr class="header">
+<th id="T_06e83_level0_col0" class="col_heading level0 col0" data-quarto-table-cell-role="th">Model</th>
+<th id="T_06e83_level0_col1" class="col_heading level0 col1" data-quarto-table-cell-role="th">Silhouette Score</th>
+<th id="T_06e83_level0_col2" class="col_heading level0 col2" data-quarto-table-cell-role="th">k</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td id="T_06e83_row0_col0" class="data row0 col0">Word2Vec</td>
+<td id="T_06e83_row0_col1" class="data row0 col1">0.1598</td>
+<td id="T_06e83_row0_col2" class="data row0 col2">10</td>
+</tr>
+<tr class="even">
+<td id="T_06e83_row1_col0" class="data row1 col0">FastText</td>
+<td id="T_06e83_row1_col1" class="data row1 col1">0.1667</td>
+<td id="T_06e83_row1_col2" class="data row1 col2">10</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<p>Both models yield low but positive Silhouette Scores (Word2Vec: 0.161, FastText: 0.167), which is expected for a corpus of long-form AI media articles: the domain is thematically homogeneous, so clusters overlap considerably in embedding space. The scores confirm the pattern already visible in the UMAP projections - there is meaningful structure, but boundaries between topics are soft. FastText’s marginally higher clustering score reflects its broader vocabulary coverage through subword n-grams, even though Word2Vec outperforms it on downstream classification tasks.</p>
+<p>To visualise the cluster structure, we project the document embeddings into 2D with UMAP and colour each point by its K-Means cluster assignment.</p>
+<div id="cell-clustering-umap" class="cell" data-execution_count="10">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>reducer_doc <span class="op">=</span> umap.UMAP(n_components<span class="op">=</span><span class="dv">2</span>, random_state<span class="op">=</span>SEED, n_neighbors<span class="op">=</span><span class="dv">15</span>, min_dist<span class="op">=</span><span class="fl">0.1</span>)</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">1</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">16</span>, <span class="dv">6</span>))</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> ax, (name, X_norm) <span class="kw">in</span> <span class="bu">zip</span>(axes, [(<span class="st">"Word2Vec"</span>, X_w2v_norm), (<span class="st">"FastText"</span>, X_ft_norm)]):</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>    km <span class="op">=</span> KMeans(n_clusters<span class="op">=</span>k, random_state<span class="op">=</span>SEED, n_init<span class="op">=</span><span class="dv">10</span>)</span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>    cluster_labels <span class="op">=</span> km.fit_predict(X_norm)</span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a>    proj <span class="op">=</span> reducer_doc.fit_transform(X_norm)</span>
+<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a>    scatter <span class="op">=</span> ax.scatter(proj[:, <span class="dv">0</span>], proj[:, <span class="dv">1</span>], c<span class="op">=</span>cluster_labels,</span>
+<span id="cb17-10"><a href="#cb17-10" aria-hidden="true" tabindex="-1"></a>                         cmap<span class="op">=</span><span class="st">"tab10"</span>, s<span class="op">=</span><span class="dv">2</span>, alpha<span class="op">=</span><span class="fl">0.4</span>)</span>
+<span id="cb17-11"><a href="#cb17-11" aria-hidden="true" tabindex="-1"></a>    ax.set_title(<span class="ss">f"</span><span class="sc">{</span>name<span class="sc">}</span><span class="ss"> – K-Means clusters (k=</span><span class="sc">{</span>k<span class="sc">}</span><span class="ss">)"</span>)</span>
+<span id="cb17-12"><a href="#cb17-12" aria-hidden="true" tabindex="-1"></a>    ax.set_xticks([])</span>
+<span id="cb17-13"><a href="#cb17-13" aria-hidden="true" tabindex="-1"></a>    ax.set_yticks([])</span>
+<span id="cb17-14"><a href="#cb17-14" aria-hidden="true" tabindex="-1"></a>    plt.colorbar(scatter, ax<span class="op">=</span>ax, label<span class="op">=</span><span class="st">"Cluster"</span>)</span>
+<span id="cb17-15"><a href="#cb17-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-16"><a href="#cb17-16" aria-hidden="true" tabindex="-1"></a>plt.suptitle(<span class="st">"Document Embedding Clusters (UMAP projection, coloured by K-Means)"</span>)</span>
+<span id="cb17-17"><a href="#cb17-17" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb17-18"><a href="#cb17-18" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="02_classical_files/figure-html/clustering-umap-output-1.png" id="clustering-umap" width="1473" height="569" class="figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Word2Vec produces a rounder, more evenly distributed layout with clearly detached satellite clusters at the periphery - likely niche topics such as Quantum Computing with highly specific vocabulary. FastText yields a more elongated structure with sharper outlier clusters, consistent with its subword features producing more distinct representations for rare and compound technical terms. Both models show a large central mass of documents with overlapping clusters, reflecting the thematic homogeneity of the AI media domain and the soft boundaries between topics.</p>
+</section>
+</section>
+<section id="extrinsic-evaluation" class="level2" data-number="3.3">
+<h2 data-number="3.3" class="anchored" data-anchor-id="extrinsic-evaluation"><span class="header-section-number">3.3</span> Extrinsic Evaluation</h2>
+<p>We evaluate both models on two downstream classification tasks using a simple pipeline: document embeddings are computed by mean-pooling the word vectors of all tokens in an article, then fed into a Logistic Regression classifier. We report Macro-F1 to account for class imbalance.</p>
+<div id="mean-pooling" class="cell" data-execution_count="11">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> mean_pooling(tokens: <span class="bu">list</span>, model) <span class="op">-&gt;</span> np.ndarray:</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Average word vectors for all in-vocabulary tokens in a document."""</span></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>    vectors <span class="op">=</span> [model.wv[t] <span class="cf">for</span> t <span class="kw">in</span> tokens <span class="cf">if</span> t <span class="kw">in</span> model.wv]</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> vectors:</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> np.mean(vectors, axis<span class="op">=</span><span class="dv">0</span>)</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> np.zeros(model.vector_size)</span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Compute document embeddings for train and test</span></span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>X_train_w2v <span class="op">=</span> np.array([mean_pooling(t, w2v_model) <span class="cf">for</span> t <span class="kw">in</span> train[<span class="st">"tokens"</span>]])</span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>X_test_w2v  <span class="op">=</span> np.array([mean_pooling(t, w2v_model) <span class="cf">for</span> t <span class="kw">in</span> test[<span class="st">"tokens"</span>]])</span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>X_train_ft  <span class="op">=</span> np.array([mean_pooling(t, ft_model) <span class="cf">for</span> t <span class="kw">in</span> train[<span class="st">"tokens"</span>]])</span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>X_test_ft   <span class="op">=</span> np.array([mean_pooling(t, ft_model) <span class="cf">for</span> t <span class="kw">in</span> test[<span class="st">"tokens"</span>]])</span>
+<span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-15"><a href="#cb18-15" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"W2V train embeddings : </span><span class="sc">{</span>X_train_w2v<span class="sc">.</span>shape<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb18-16"><a href="#cb18-16" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"FT  train embeddings : </span><span class="sc">{</span>X_train_ft<span class="sc">.</span>shape<span class="sc">}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>W2V train embeddings : (13053, 300)
+FT  train embeddings : (13053, 300)</code></pre>
+</div>
+</div>
+<div id="extrinsic-topic-filter" class="cell" data-execution_count="12">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Sentiment labels</span></span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>y_train_sent  <span class="op">=</span> train[<span class="st">"sentiment_label"</span>]</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>y_test_sent   <span class="op">=</span> test[<span class="st">"sentiment_label"</span>]</span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Filter to articles with a top-10 topic label</span></span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>train_topic <span class="op">=</span> train.dropna(subset<span class="op">=</span>[<span class="st">"topic_label"</span>]).reset_index(drop<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>test_topic  <span class="op">=</span> test.dropna(subset<span class="op">=</span>[<span class="st">"topic_label"</span>]).reset_index(drop<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>X_train_w2v_t <span class="op">=</span> np.array([mean_pooling(t, w2v_model) <span class="cf">for</span> t <span class="kw">in</span> train_topic[<span class="st">"tokens"</span>]])</span>
+<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a>X_test_w2v_t  <span class="op">=</span> np.array([mean_pooling(t, w2v_model) <span class="cf">for</span> t <span class="kw">in</span> test_topic[<span class="st">"tokens"</span>]])</span>
+<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>X_train_ft_t  <span class="op">=</span> np.array([mean_pooling(t, ft_model)  <span class="cf">for</span> t <span class="kw">in</span> train_topic[<span class="st">"tokens"</span>]])</span>
+<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a>X_test_ft_t   <span class="op">=</span> np.array([mean_pooling(t, ft_model)  <span class="cf">for</span> t <span class="kw">in</span> test_topic[<span class="st">"tokens"</span>]])</span>
+<span id="cb20-13"><a href="#cb20-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-14"><a href="#cb20-14" aria-hidden="true" tabindex="-1"></a>y_train_topic <span class="op">=</span> train_topic[<span class="st">"topic_label"</span>]</span>
+<span id="cb20-15"><a href="#cb20-15" aria-hidden="true" tabindex="-1"></a>y_test_topic  <span class="op">=</span> test_topic[<span class="st">"topic_label"</span>]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<section id="cross-validation" class="level3" data-number="3.3.1">
+<h3 data-number="3.3.1" class="anchored" data-anchor-id="cross-validation"><span class="header-section-number">3.3.1</span> Cross Validation</h3>
+<p>Before evaluating on the test set, we verify the stability of both models using 5-fold cross validation on the training data. This gives a more robust estimate of generalisation performance and confirms that the test results are not an artefact of a particular train/test split.</p>
+<div id="cross-validation" class="cell" data-execution_count="13">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.model_selection <span class="im">import</span> cross_val_score</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> task_name, y_tr <span class="kw">in</span> [(<span class="st">"Sentiment"</span>, y_train_sent), (<span class="st">"Topic"</span>, y_train_topic)]:</span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"── </span><span class="sc">{</span>task_name<span class="sc">}</span><span class="ss"> ──"</span>)</span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> name, X_tr <span class="kw">in</span> [(<span class="st">"Word2Vec"</span>, X_train_w2v), (<span class="st">"FastText"</span>, X_train_ft)]:</span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> task_name <span class="op">==</span> <span class="st">"Topic"</span>:</span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a>            X_tr <span class="op">=</span> X_train_w2v_t <span class="cf">if</span> name <span class="op">==</span> <span class="st">"Word2Vec"</span> <span class="cf">else</span> X_train_ft_t</span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>        scores <span class="op">=</span> cross_val_score(</span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>            LogisticRegression(max_iter<span class="op">=</span><span class="dv">1000</span>, random_state<span class="op">=</span>SEED),</span>
+<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a>            X_tr, y_tr, cv<span class="op">=</span><span class="dv">5</span>, scoring<span class="op">=</span><span class="st">"f1_macro"</span>, n_jobs<span class="op">=</span><span class="dv">1</span></span>
+<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a>        )</span>
+<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f"  </span><span class="sc">{</span>name<span class="sc">}</span><span class="ss">: </span><span class="sc">{</span>scores<span class="sc">.</span>mean()<span class="sc">:.3f}</span><span class="ss"> ± </span><span class="sc">{</span>scores<span class="sc">.</span>std()<span class="sc">:.3f}</span><span class="ss">"</span>)</span>
+<span id="cb21-13"><a href="#cb21-13" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>── Sentiment ──
+  Word2Vec: 0.744 ± 0.007
+  FastText: 0.743 ± 0.008
+
+── Topic ──
+  Word2Vec: 0.791 ± 0.024
+  FastText: 0.784 ± 0.025
+</code></pre>
+</div>
+</div>
+<p>Cross validation confirms that both models are stable across different data splits. The low standard deviation (±0.01 for sentiment, ±0.02 for topic) indicates that the test set results are reliable and not an artefact of a particular split.</p>
+</section>
+<section id="sentiment-classification" class="level3" data-number="3.3.2">
+<h3 data-number="3.3.2" class="anchored" data-anchor-id="sentiment-classification"><span class="header-section-number">3.3.2</span> Sentiment Classification</h3>
+<div id="extrinsic-sentiment" class="cell" data-execution_count="14">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>results <span class="op">=</span> {}</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> name, X_tr, X_te <span class="kw">in</span> [</span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>    (<span class="st">"Word2Vec"</span>, X_train_w2v, X_test_w2v),</span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>    (<span class="st">"FastText"</span>, X_train_ft,  X_test_ft),</span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>]:</span>
+<span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a>    clf <span class="op">=</span> LogisticRegression(max_iter<span class="op">=</span><span class="dv">1000</span>, random_state<span class="op">=</span>SEED)</span>
+<span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a>    clf.fit(X_tr, y_train_sent)</span>
+<span id="cb23-9"><a href="#cb23-9" aria-hidden="true" tabindex="-1"></a>    y_pred <span class="op">=</span> clf.predict(X_te)</span>
+<span id="cb23-10"><a href="#cb23-10" aria-hidden="true" tabindex="-1"></a>    macro_f1 <span class="op">=</span> f1_score(y_test_sent, y_pred, average<span class="op">=</span><span class="st">"macro"</span>)</span>
+<span id="cb23-11"><a href="#cb23-11" aria-hidden="true" tabindex="-1"></a>    results[name] <span class="op">=</span> macro_f1</span>
+<span id="cb23-12"><a href="#cb23-12" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"── </span><span class="sc">{</span>name<span class="sc">}</span><span class="ss"> ──"</span>)</span>
+<span id="cb23-13"><a href="#cb23-13" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(classification_report(y_test_sent, y_pred))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>── Word2Vec ──
+                   precision    recall  f1-score   support
+
+(partly) negative       0.79      0.60      0.68       487
+          neutral       0.80      0.89      0.84      1995
+         positive       0.79      0.67      0.73       782
+
+         accuracy                           0.80      3264
+        macro avg       0.80      0.72      0.75      3264
+     weighted avg       0.80      0.80      0.79      3264
+
+── FastText ──
+                   precision    recall  f1-score   support
+
+(partly) negative       0.80      0.59      0.68       487
+          neutral       0.80      0.89      0.84      1995
+         positive       0.79      0.67      0.73       782
+
+         accuracy                           0.79      3264
+        macro avg       0.79      0.72      0.75      3264
+     weighted avg       0.79      0.79      0.79      3264
+</code></pre>
+</div>
+</div>
+<p>Both models achieve a Macro-F1 of 0.75 (Word2Vec) and 0.74 (FastText) on the sentiment task - solid results for a mean-pooling baseline with a simple linear classifier. The two models perform near-identically, suggesting that FastText’s subword generalisation offers little additional signal when averaging over long documents. The class <code>(partly) negative</code> shows the lowest recall (~0.60) across both models, reflecting its smaller support and the often subtle framing of negative sentiment in AI media coverage. <code>neutral</code> is the best-recognised class, consistent with its dominance in the dataset.</p>
+<div id="cell-confusion-sentiment" class="cell" data-execution_count="15">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.metrics <span class="im">import</span> ConfusionMatrixDisplay, confusion_matrix</span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">1</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">12</span>, <span class="dv">5</span>))</span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> ax, (name, X_tr, X_te) <span class="kw">in</span> <span class="bu">zip</span>(axes, [</span>
+<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a>    (<span class="st">"Word2Vec"</span>, X_train_w2v, X_test_w2v),</span>
+<span id="cb25-7"><a href="#cb25-7" aria-hidden="true" tabindex="-1"></a>    (<span class="st">"FastText"</span>, X_train_ft,  X_test_ft),</span>
+<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a>]):</span>
+<span id="cb25-9"><a href="#cb25-9" aria-hidden="true" tabindex="-1"></a>    clf <span class="op">=</span> LogisticRegression(max_iter<span class="op">=</span><span class="dv">1000</span>, random_state<span class="op">=</span>SEED)</span>
+<span id="cb25-10"><a href="#cb25-10" aria-hidden="true" tabindex="-1"></a>    clf.fit(X_tr, y_train_sent)</span>
+<span id="cb25-11"><a href="#cb25-11" aria-hidden="true" tabindex="-1"></a>    y_pred <span class="op">=</span> clf.predict(X_te)</span>
+<span id="cb25-12"><a href="#cb25-12" aria-hidden="true" tabindex="-1"></a>    cm <span class="op">=</span> confusion_matrix(y_test_sent, y_pred, labels<span class="op">=</span>clf.classes_)</span>
+<span id="cb25-13"><a href="#cb25-13" aria-hidden="true" tabindex="-1"></a>    disp <span class="op">=</span> ConfusionMatrixDisplay(cm, display_labels<span class="op">=</span>clf.classes_)</span>
+<span id="cb25-14"><a href="#cb25-14" aria-hidden="true" tabindex="-1"></a>    disp.plot(ax<span class="op">=</span>ax, colorbar<span class="op">=</span><span class="va">False</span>, xticks_rotation<span class="op">=</span><span class="dv">45</span>)</span>
+<span id="cb25-15"><a href="#cb25-15" aria-hidden="true" tabindex="-1"></a>    ax.set_title(name)</span>
+<span id="cb25-16"><a href="#cb25-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb25-17"><a href="#cb25-17" aria-hidden="true" tabindex="-1"></a>plt.suptitle(<span class="st">"Confusion Matrix - Sentiment Classification"</span>)</span>
+<span id="cb25-18"><a href="#cb25-18" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb25-19"><a href="#cb25-19" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="02_classical_files/figure-html/confusion-sentiment-output-1.png" id="confusion-sentiment" width="1003" height="474" class="figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>The confusion matrix confirms the classification report findings. Both models behave near-identically. The dominant error pattern is misclassification into <code>neutral</code> - articles from both <code>(partly) negative</code> and <code>positive</code> classes are frequently predicted as <code>neutral</code>, reflecting the subtle sentiment signals in AI media coverage and the class imbalance favouring <code>neutral</code> in the training data.</p>
+</section>
+<section id="topic-classification" class="level3" data-number="3.3.3">
+<h3 data-number="3.3.3" class="anchored" data-anchor-id="topic-classification"><span class="header-section-number">3.3.3</span> Topic Classification</h3>
+<div id="extrinsic-topic" class="cell" data-execution_count="16">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb26"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> name, X_tr, X_te <span class="kw">in</span> [</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>    (<span class="st">"Word2Vec"</span>, X_train_w2v_t, X_test_w2v_t),</span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>    (<span class="st">"FastText"</span>, X_train_ft_t,  X_test_ft_t),</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>]:</span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>    clf <span class="op">=</span> LogisticRegression(max_iter<span class="op">=</span><span class="dv">1000</span>, random_state<span class="op">=</span>SEED)</span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>    clf.fit(X_tr, y_train_topic)</span>
+<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a>    y_pred <span class="op">=</span> clf.predict(X_te)</span>
+<span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a>    macro_f1 <span class="op">=</span> f1_score(y_test_topic, y_pred, average<span class="op">=</span><span class="st">"macro"</span>)</span>
+<span id="cb26-9"><a href="#cb26-9" aria-hidden="true" tabindex="-1"></a>    results[<span class="ss">f"</span><span class="sc">{</span>name<span class="sc">}</span><span class="ss"> (topic)"</span>] <span class="op">=</span> macro_f1</span>
+<span id="cb26-10"><a href="#cb26-10" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"── </span><span class="sc">{</span>name<span class="sc">}</span><span class="ss"> ──"</span>)</span>
+<span id="cb26-11"><a href="#cb26-11" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(classification_report(y_test_topic, y_pred))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>── Word2Vec ──
+                                     precision    recall  f1-score   support
+
+           AI News &amp; Tech (General)       0.84      0.93      0.88       986
+AI in Education (Students/Learning)       0.79      0.48      0.60        65
+              AI in Media &amp; Content       0.67      0.56      0.61        82
+   Consumer Tech (Apple/5G/Devices)       0.82      0.59      0.69        61
+           Energy, Power &amp; Robotics       0.86      0.81      0.83       178
+          ML Models &amp; Training Data       0.83      0.78      0.81       158
+                  Quantum Computing       0.96      0.83      0.89        82
+            Search, SEO &amp; Marketing       0.86      0.85      0.86       188
+            Stocks &amp; Market Ratings       0.86      0.85      0.86       142
+      US Politics &amp; China Relations       0.84      0.71      0.77        95
+
+                           accuracy                           0.84      2037
+                          macro avg       0.83      0.74      0.78      2037
+                       weighted avg       0.84      0.84      0.84      2037
+
+── FastText ──
+                                     precision    recall  f1-score   support
+
+           AI News &amp; Tech (General)       0.84      0.93      0.88       986
+AI in Education (Students/Learning)       0.78      0.45      0.57        65
+              AI in Media &amp; Content       0.66      0.55      0.60        82
+   Consumer Tech (Apple/5G/Devices)       0.82      0.59      0.69        61
+           Energy, Power &amp; Robotics       0.86      0.81      0.83       178
+          ML Models &amp; Training Data       0.84      0.77      0.81       158
+                  Quantum Computing       0.97      0.84      0.90        82
+            Search, SEO &amp; Marketing       0.87      0.85      0.86       188
+            Stocks &amp; Market Ratings       0.86      0.85      0.85       142
+      US Politics &amp; China Relations       0.83      0.72      0.77        95
+
+                           accuracy                           0.84      2037
+                          macro avg       0.83      0.74      0.78      2037
+                       weighted avg       0.84      0.84      0.84      2037
+</code></pre>
+</div>
+</div>
+<p>Topic classification yields stronger results, with Macro-F1 of 0.78 (Word2Vec) and 0.77 (FastText). <code>Quantum Computing</code> stands out with F1 scores of 0.89 and 0.90 respectively - its highly specific and self-contained vocabulary makes it easy to separate from other topics. <code>Search, SEO &amp; Marketing</code>, <code>Energy, Power &amp; Robotics</code> and <code>Stocks &amp; Market Ratings</code> are also well-recognised. The weakest classes are <code>AI in Education</code> (F1 ~0.58) and <code>AI in Media &amp; Content</code> (F1 ~0.59), both of which overlap thematically with the dominant <code>AI News &amp; Tech (General)</code> class, leading to frequent misclassification. The cross-validated Macro-F1 scores (W2V: 0.789 ± 0.024, FT: 0.784 ± 0.023) confirm the stability of these results.</p>
+<div id="cell-confusion-topic" class="cell" data-execution_count="17">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb28"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">1</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">18</span>, <span class="dv">7</span>))</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> ax, (name, X_tr, X_te) <span class="kw">in</span> <span class="bu">zip</span>(axes, [</span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>    (<span class="st">"Word2Vec"</span>, X_train_w2v_t, X_test_w2v_t),</span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a>    (<span class="st">"FastText"</span>, X_train_ft_t,  X_test_ft_t),</span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a>]):</span>
+<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a>    clf <span class="op">=</span> LogisticRegression(max_iter<span class="op">=</span><span class="dv">1000</span>, random_state<span class="op">=</span>SEED)</span>
+<span id="cb28-8"><a href="#cb28-8" aria-hidden="true" tabindex="-1"></a>    clf.fit(X_tr, y_train_topic)</span>
+<span id="cb28-9"><a href="#cb28-9" aria-hidden="true" tabindex="-1"></a>    y_pred <span class="op">=</span> clf.predict(X_te)</span>
+<span id="cb28-10"><a href="#cb28-10" aria-hidden="true" tabindex="-1"></a>    cm <span class="op">=</span> confusion_matrix(y_test_topic, y_pred, labels<span class="op">=</span>clf.classes_)</span>
+<span id="cb28-11"><a href="#cb28-11" aria-hidden="true" tabindex="-1"></a>    disp <span class="op">=</span> ConfusionMatrixDisplay(cm, display_labels<span class="op">=</span>clf.classes_)</span>
+<span id="cb28-12"><a href="#cb28-12" aria-hidden="true" tabindex="-1"></a>    disp.plot(ax<span class="op">=</span>ax, colorbar<span class="op">=</span><span class="va">False</span>, xticks_rotation<span class="op">=</span><span class="dv">45</span>)</span>
+<span id="cb28-13"><a href="#cb28-13" aria-hidden="true" tabindex="-1"></a>    ax.set_title(name)</span>
+<span id="cb28-14"><a href="#cb28-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-15"><a href="#cb28-15" aria-hidden="true" tabindex="-1"></a>plt.suptitle(<span class="st">"Confusion Matrix - Topic Classification"</span>)</span>
+<span id="cb28-16"><a href="#cb28-16" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb28-17"><a href="#cb28-17" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="02_classical_files/figure-html/confusion-topic-output-1.png" id="confusion-topic" width="1581" height="662" class="figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>The topic confusion matrix reveals a clear systematic error: the vast majority of misclassifications end up in <code>AI News &amp; Tech (General)</code>, the dominant catch-all topic. This is expected - articles that touch on general AI developments are hard to distinguish from topic-specific articles that also mention broader AI context. The most affected classes are <code>AI in Education</code> (~40% misclassified) and <code>ML Models &amp; Training Data</code> (~18% misclassified), both of which share vocabulary with the general AI topic. Specialised topics like <code>Quantum Computing</code>, <code>Search, SEO &amp; Marketing</code> and <code>Stocks &amp; Market Ratings</code> are much more robust, with clear diagonal dominance and few off-diagonal errors.</p>
+<p>The summary confirms the pattern observed across both tasks. Word2Vec consistently outperforms FastText by a small margin, and both models perform better on topic classification (0.77–0.78) than on sentiment classification (0.74–0.75). The topic task benefits from more distinctive domain vocabulary, while sentiment requires capturing subtler linguistic signals that mean-pooling over long documents tends to smooth out. The confusion matrices reveal the dominant error patterns: for sentiment, both models struggle to distinguish <code>(partly) negative</code> and <code>positive</code> from <code>neutral</code>, reflecting class imbalance and subtle affective language. For topic classification, misclassifications are almost exclusively absorbed by <code>AI News &amp; Tech (General)</code>, the catch-all topic that shares vocabulary with all other classes.</p>
+</section>
+<section id="minilm-baseline" class="level3" data-number="3.3.4">
+<h3 data-number="3.3.4" class="anchored" data-anchor-id="minilm-baseline"><span class="header-section-number">3.3.4</span> MiniLM Baseline</h3>
+<p>As a reference point, we evaluate the pre-computed MiniLM sentence embeddings from Stage 1 on the same two classification tasks. These embeddings were produced by <code>all-MiniLM-L6-v2</code> (SentenceTransformers), a compact Sentence-BERT model that directly encodes full documents into 384-dimensional vectors. Unlike Word2Vec and FastText, MiniLM produces contextualised document-level embeddings - comparing its performance against the mean-pooled word vectors gives an indication of how much is gained by moving from static to contextualised representations.</p>
+<p>Since <code>media_id</code> values are not contiguous after the cleaning steps in Stage 1, we cannot use them directly as row indices into <code>embeddings.npy</code>. We reconstruct the mapping by loading the index from <code>media_cleaned.csv</code>, which preserves the original row order of the embedding matrix.</p>
+<div id="minilm-load" class="cell" data-execution_count="18">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb29"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Load MiniLM embeddings from Stage 1</span></span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>embeddings <span class="op">=</span> np.load(STAGE1_DIR <span class="op">/</span> <span class="st">"embeddings.npy"</span>)</span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Build mapping: media_id -&gt; embedding row index</span></span>
+<span id="cb29-5"><a href="#cb29-5" aria-hidden="true" tabindex="-1"></a>media_index <span class="op">=</span> pd.read_csv(STAGE1_DIR <span class="op">/</span> <span class="st">"media_cleaned.csv"</span>, usecols<span class="op">=</span>[<span class="st">"media_id"</span>])</span>
+<span id="cb29-6"><a href="#cb29-6" aria-hidden="true" tabindex="-1"></a>media_id_to_idx <span class="op">=</span> {mid: idx <span class="cf">for</span> idx, mid <span class="kw">in</span> <span class="bu">enumerate</span>(media_index[<span class="st">"media_id"</span>])}</span>
+<span id="cb29-7"><a href="#cb29-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-8"><a href="#cb29-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Align to train/test splits via mapping</span></span>
+<span id="cb29-9"><a href="#cb29-9" aria-hidden="true" tabindex="-1"></a>X_train_mini <span class="op">=</span> embeddings[[media_id_to_idx[mid] <span class="cf">for</span> mid <span class="kw">in</span> train[<span class="st">"media_id"</span>]]]</span>
+<span id="cb29-10"><a href="#cb29-10" aria-hidden="true" tabindex="-1"></a>X_test_mini  <span class="op">=</span> embeddings[[media_id_to_idx[mid] <span class="cf">for</span> mid <span class="kw">in</span> test[<span class="st">"media_id"</span>]]]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div id="minilm-baseline" class="cell" data-execution_count="19">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb30"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Sentiment</span></span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>clf <span class="op">=</span> LogisticRegression(max_iter<span class="op">=</span><span class="dv">1000</span>, random_state<span class="op">=</span>SEED)</span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>clf.fit(X_train_mini, y_train_sent)</span>
+<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a>y_pred <span class="op">=</span> clf.predict(X_test_mini)</span>
+<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a>results[<span class="st">"MiniLM (sentiment)"</span>] <span class="op">=</span> f1_score(y_test_sent, y_pred, average<span class="op">=</span><span class="st">"macro"</span>)</span>
+<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"── MiniLM Sentiment ──"</span>)</span>
+<span id="cb30-7"><a href="#cb30-7" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(classification_report(y_test_sent, y_pred))</span>
+<span id="cb30-8"><a href="#cb30-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-9"><a href="#cb30-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Topic</span></span>
+<span id="cb30-10"><a href="#cb30-10" aria-hidden="true" tabindex="-1"></a>X_train_mini_t <span class="op">=</span> embeddings[[media_id_to_idx[mid] <span class="cf">for</span> mid <span class="kw">in</span> train_topic[<span class="st">"media_id"</span>]]]</span>
+<span id="cb30-11"><a href="#cb30-11" aria-hidden="true" tabindex="-1"></a>X_test_mini_t  <span class="op">=</span> embeddings[[media_id_to_idx[mid] <span class="cf">for</span> mid <span class="kw">in</span> test_topic[<span class="st">"media_id"</span>]]]</span>
+<span id="cb30-12"><a href="#cb30-12" aria-hidden="true" tabindex="-1"></a>clf.fit(X_train_mini_t, y_train_topic)</span>
+<span id="cb30-13"><a href="#cb30-13" aria-hidden="true" tabindex="-1"></a>y_pred <span class="op">=</span> clf.predict(X_test_mini_t)</span>
+<span id="cb30-14"><a href="#cb30-14" aria-hidden="true" tabindex="-1"></a>results[<span class="st">"MiniLM (topic)"</span>] <span class="op">=</span> f1_score(y_test_topic, y_pred, average<span class="op">=</span><span class="st">"macro"</span>)</span>
+<span id="cb30-15"><a href="#cb30-15" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"── MiniLM Topic ──"</span>)</span>
+<span id="cb30-16"><a href="#cb30-16" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(classification_report(y_test_topic, y_pred))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>── MiniLM Sentiment ──
+                   precision    recall  f1-score   support
+
+(partly) negative       0.72      0.51      0.59       487
+          neutral       0.73      0.87      0.79      1995
+         positive       0.69      0.48      0.57       782
+
+         accuracy                           0.72      3264
+        macro avg       0.71      0.62      0.65      3264
+     weighted avg       0.72      0.72      0.71      3264
+
+── MiniLM Topic ──
+                                     precision    recall  f1-score   support
+
+           AI News &amp; Tech (General)       0.89      0.96      0.92       986
+AI in Education (Students/Learning)       0.89      0.72      0.80        65
+              AI in Media &amp; Content       0.87      0.66      0.75        82
+   Consumer Tech (Apple/5G/Devices)       0.94      0.79      0.86        61
+           Energy, Power &amp; Robotics       0.92      0.85      0.88       178
+          ML Models &amp; Training Data       0.90      0.84      0.87       158
+                  Quantum Computing       0.95      0.93      0.94        82
+            Search, SEO &amp; Marketing       0.94      0.89      0.91       188
+            Stocks &amp; Market Ratings       0.92      0.93      0.92       142
+      US Politics &amp; China Relations       0.92      0.85      0.89        95
+
+                           accuracy                           0.90      2037
+                          macro avg       0.91      0.84      0.87      2037
+                       weighted avg       0.90      0.90      0.90      2037
+</code></pre>
+</div>
+</div>
+<div id="cell-summary-table-final" class="cell" data-execution_count="20">
+<details class="code-fold">
+<summary>Show/Hide code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb32"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a>summary <span class="op">=</span> pd.DataFrame({</span>
+<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Model"</span>: [<span class="st">"Word2Vec"</span>, <span class="st">"FastText"</span>, <span class="st">"MiniLM"</span>, <span class="st">"Word2Vec"</span>, <span class="st">"FastText"</span>, <span class="st">"MiniLM*"</span>],</span>
+<span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Task"</span>: [<span class="st">"Sentiment"</span>, <span class="st">"Sentiment"</span>, <span class="st">"Sentiment"</span>, <span class="st">"Topic"</span>, <span class="st">"Topic"</span>, <span class="st">"Topic"</span>],</span>
+<span id="cb32-4"><a href="#cb32-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Macro-F1"</span>: [<span class="fl">0.752</span>, <span class="fl">0.745</span>, <span class="fl">0.650</span>, <span class="fl">0.776</span>, <span class="fl">0.773</span>, <span class="fl">0.870</span>],</span>
+<span id="cb32-5"><a href="#cb32-5" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb32-6"><a href="#cb32-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-7"><a href="#cb32-7" aria-hidden="true" tabindex="-1"></a>summary[<span class="st">"Macro-F1"</span>] <span class="op">=</span> summary[<span class="st">"Macro-F1"</span>].<span class="bu">map</span>(<span class="st">"</span><span class="sc">{:.3f}</span><span class="st">"</span>.<span class="bu">format</span>)</span>
+<span id="cb32-8"><a href="#cb32-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-9"><a href="#cb32-9" aria-hidden="true" tabindex="-1"></a>styled <span class="op">=</span> (</span>
+<span id="cb32-10"><a href="#cb32-10" aria-hidden="true" tabindex="-1"></a>    summary.style</span>
+<span id="cb32-11"><a href="#cb32-11" aria-hidden="true" tabindex="-1"></a>    .set_properties(<span class="op">**</span>{<span class="st">"text-align"</span>: <span class="st">"center"</span>})</span>
+<span id="cb32-12"><a href="#cb32-12" aria-hidden="true" tabindex="-1"></a>    .set_table_styles([</span>
+<span id="cb32-13"><a href="#cb32-13" aria-hidden="true" tabindex="-1"></a>        {<span class="st">"selector"</span>: <span class="st">"th"</span>, <span class="st">"props"</span>: [(<span class="st">"text-align"</span>, <span class="st">"center"</span>), (<span class="st">"background-color"</span>, <span class="st">"#f0f0f0"</span>)]}</span>
+<span id="cb32-14"><a href="#cb32-14" aria-hidden="true" tabindex="-1"></a>    ])</span>
+<span id="cb32-15"><a href="#cb32-15" aria-hidden="true" tabindex="-1"></a>    .<span class="bu">apply</span>(<span class="kw">lambda</span> x: [<span class="st">"background-color: #fff3cd"</span> <span class="cf">if</span> x[<span class="st">"Model"</span>] <span class="op">==</span> <span class="st">"MiniLM*"</span> <span class="cf">else</span> <span class="st">""</span> <span class="cf">for</span> _ <span class="kw">in</span> x], axis<span class="op">=</span><span class="dv">1</span>)</span>
+<span id="cb32-16"><a href="#cb32-16" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb32-17"><a href="#cb32-17" aria-hidden="true" tabindex="-1"></a>styled</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div id="summary-table-final" class="cell-output cell-output-display" data-execution_count="20">
+<style type="text/css">
+#T_5a668 th {
+  text-align: center;
+  background-color: #f0f0f0;
+}
+#T_5a668_row0_col0, #T_5a668_row0_col1, #T_5a668_row0_col2, #T_5a668_row1_col0, #T_5a668_row1_col1, #T_5a668_row1_col2, #T_5a668_row2_col0, #T_5a668_row2_col1, #T_5a668_row2_col2, #T_5a668_row3_col0, #T_5a668_row3_col1, #T_5a668_row3_col2, #T_5a668_row4_col0, #T_5a668_row4_col1, #T_5a668_row4_col2 {
+  text-align: center;
+}
+#T_5a668_row5_col0, #T_5a668_row5_col1, #T_5a668_row5_col2 {
+  text-align: center;
+  background-color: #fff3cd;
+}
+</style>
+
+<table id="T_5a668" class="caption-top table table-sm table-striped small">
+<thead>
+<tr class="header">
+<th class="blank level0" data-quarto-table-cell-role="th">&nbsp;</th>
+<th id="T_5a668_level0_col0" class="col_heading level0 col0" data-quarto-table-cell-role="th">Model</th>
+<th id="T_5a668_level0_col1" class="col_heading level0 col1" data-quarto-table-cell-role="th">Task</th>
+<th id="T_5a668_level0_col2" class="col_heading level0 col2" data-quarto-table-cell-role="th">Macro-F1</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th id="T_5a668_level0_row0" class="row_heading level0 row0" data-quarto-table-cell-role="th">0</th>
+<td id="T_5a668_row0_col0" class="data row0 col0">Word2Vec</td>
+<td id="T_5a668_row0_col1" class="data row0 col1">Sentiment</td>
+<td id="T_5a668_row0_col2" class="data row0 col2">0.752</td>
+</tr>
+<tr class="even">
+<th id="T_5a668_level0_row1" class="row_heading level0 row1" data-quarto-table-cell-role="th">1</th>
+<td id="T_5a668_row1_col0" class="data row1 col0">FastText</td>
+<td id="T_5a668_row1_col1" class="data row1 col1">Sentiment</td>
+<td id="T_5a668_row1_col2" class="data row1 col2">0.745</td>
+</tr>
+<tr class="odd">
+<th id="T_5a668_level0_row2" class="row_heading level0 row2" data-quarto-table-cell-role="th">2</th>
+<td id="T_5a668_row2_col0" class="data row2 col0">MiniLM</td>
+<td id="T_5a668_row2_col1" class="data row2 col1">Sentiment</td>
+<td id="T_5a668_row2_col2" class="data row2 col2">0.650</td>
+</tr>
+<tr class="even">
+<th id="T_5a668_level0_row3" class="row_heading level0 row3" data-quarto-table-cell-role="th">3</th>
+<td id="T_5a668_row3_col0" class="data row3 col0">Word2Vec</td>
+<td id="T_5a668_row3_col1" class="data row3 col1">Topic</td>
+<td id="T_5a668_row3_col2" class="data row3 col2">0.776</td>
+</tr>
+<tr class="odd">
+<th id="T_5a668_level0_row4" class="row_heading level0 row4" data-quarto-table-cell-role="th">4</th>
+<td id="T_5a668_row4_col0" class="data row4 col0">FastText</td>
+<td id="T_5a668_row4_col1" class="data row4 col1">Topic</td>
+<td id="T_5a668_row4_col2" class="data row4 col2">0.773</td>
+</tr>
+<tr class="even">
+<th id="T_5a668_level0_row5" class="row_heading level0 row5" data-quarto-table-cell-role="th">5</th>
+<td id="T_5a668_row5_col0" class="data row5 col0">MiniLM*</td>
+<td id="T_5a668_row5_col1" class="data row5 col1">Topic</td>
+<td id="T_5a668_row5_col2" class="data row5 col2">0.870</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<p><em>* MiniLM topic result is invalid - labels were derived from MiniLM embeddings in Stage 1.</em></p>
+<p>The MiniLM results reveal an interesting split between the two tasks.</p>
+<p><strong>For sentiment classification, MiniLM underperforms</strong> both classical models with a Macro-F1 of 0.65, compared to 0.75 (Word2Vec) and 0.74 (FastText). This is a genuine result: the MiniLM embeddings, trained on general-purpose sentence similarity, appear to capture sentiment-relevant signals less effectively than Word2Vec and FastText trained directly on this domain-specific corpus. The classical models have learned domain-specific affective vocabulary from the AI media text, giving them a clear advantage on this task.</p>
+<p><strong>For topic classification</strong>, MiniLM achieves a Macro-F1 of 0.87 - substantially higher than Word2Vec (0.78) and FastText (0.77). However, this result is <strong>invalid as a comparison</strong>: the BERTopic topic assignments used as ground truth labels were themselves derived from MiniLM embeddings in Stage 1. The classifier is recovering its own latent structure rather than demonstrating generalisation, making the score meaningless as a benchmark. The topic classification scores of Word2Vec (0.78) and FastText (0.77) are the only valid results for this task, as these models learned the topic structure independently from raw token co-occurrence.</p>
+
+
+</section>
+</section>
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="./01_data.html" class="pagination-link" aria-label="Data Preparation">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Data Preparation</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="./03_introduction.html" class="pagination-link" aria-label="Introduction to Fine-Tunning">
+        <span class="nav-page-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Introduction to Fine-Tunning</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+
+
+
+
+</body></html>
