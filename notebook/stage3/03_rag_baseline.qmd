@@ -115,14 +115,60 @@ print(f"\nAfter splitting:")
 print(f"  Total documents: {len(documents):,}")
 ```
 
+```{python}
+#| label: save chunks
+#| code-summary: "Save chunked documents for later use"
+
+import pickle
+DOCS_PATH = STAGE3_DIR / "chunks_minilm.pkl"
+with open(DOCS_PATH, "wb") as f:
+    pickle.dump(documents, f)
+print(f"Saved {len(documents):,} documents")
+```
+
+```{python}
+#| label: chunks-inspection
+#| code-summary: "Load and inspect split chunks"
+#| eval: true
+
+DOCS_PATH = STAGE3_DIR / "chunks_minilm.pkl"
+
+# Load from disk
+with open(DOCS_PATH, "rb") as f:
+    documents = pickle.load(f)
+print(f"Loaded {len(documents):,} documents")
+
+# Find examples that were split (have sub_chunk key)
+split_examples = [(i, doc) for i, doc in enumerate(documents)
+                  if doc.metadata.get("sub_chunk", -1) > 0]
+print(f"Sub-chunks created: {len(split_examples):,}")
+
+# Show first example with its predecessor
+idx, example = split_examples[0]
+prev = documents[idx - 1]
+
+print("\n=== Sub-chunk 0 ===")
+print(f"Titel:  {prev.metadata['title']}")
+print(f"Länge:  {len(prev.page_content)} Zeichen")
+print(prev.page_content[:300])
+
+print("\n=== Sub-chunk 1 (overlap sichtbar) ===")
+print(f"Länge:  {len(example.page_content)} Zeichen")
+print(example.page_content[:300])
+
+print("\n→ Overlap:")
+print(f"Ende von Sub-chunk 0: ...{prev.page_content[-128:]}")
+print(f"Anfang von Sub-chunk 1: {example.page_content[:128]}...")
+```
+
 ## Embeddings
 
 ```{python}
 #| label: embeddings
 #| code-summary: "Generate embeddings with checkpointing"
 
-EMBEDDINGS_PATH = STAGE3_DIR / "embeddings_gte.npy"
-DOCS_PATH = STAGE3_DIR / "documents.pkl"
+EMBEDDINGS_PATH = STAGE3_DIR / "embeddings_minilm.npy"
+DOCS_PATH = STAGE3_DIR / "chunks_minilm.pkl"
 
 embedding_model = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2",
