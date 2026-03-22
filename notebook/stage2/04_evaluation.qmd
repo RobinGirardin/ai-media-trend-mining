@@ -1,4 +1,6 @@
-# Comparative Evaluation
+---
+title: "Comparative Evaluation"
+---
 
 This chapter brings together the results from all Stage 2 models - classical embeddings
 (Word2Vec, FastText) and fine-tuned compact LLMs (TinyLlama 1.1B, Gemma 2 2B) - and
@@ -150,3 +152,13 @@ The projection reveals a clear thematic organisation of AI media discourse that 
 
 Crucially, this structure was learned entirely from word co-occurrence statistics, without any topic supervision. The fact that Word2Vec recovers the broad organisation of AI discourse unsupervised demonstrates that classical embeddings trained on domain-specific text capture
 genuine thematic structure - making them a practical tool for tracking how AI topics relate and evolve over time.
+
+## Use of AI Tools
+
+Throughout this project, generative AI tools were used to support several parts of the workflow.
+
+AI was used for debugging Python code, resolving library-specific questions (spaCy, BERTopic, NetworkX, LangExtract), advising on architectural decisions such as the entity-relationship schema and knowledge graph design, and reviewing pull requests. AI also supported the writing of explanatory text throughout the notebook to ensure clarity and grammatical correctness, as this report is written in English as a non-native language.
+
+AI was also used during active coding sessions to accelerate boilerplate code generation, particularly for data transformation steps and visualization code.
+
+It is important to note that AI tools occasionally produced ambiguous or inconsistent answers, particularly for complex pipeline logic or edge cases in library APIs. All outputs were critically reviewed, and final decisions — including analytical interpretations, entity label choices, and topic assignments — were made manually by the team.

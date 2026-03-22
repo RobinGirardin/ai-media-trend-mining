@@ -1,4 +1,8 @@
-# Preface {.unnumbered}
+---
+title: "Preface"
+---
+
+# Preface
 
 This book documents Stage 2 of the Computational Language Technologies project at HSLU, building on the data pipeline and exploratory analysis completed in Stage 1.
 
@@ -20,3 +24,19 @@ Stage 1 produced cleaned article and chunk data, sentiment labels, BERTopic topi
 Sever Alin, Girardin Robin & Huber Daniel
 
 *Course: Computational Language Technologies, HSLU Applied Information and Data Science*
+
+Contributions:
+
+* Sever Alin: `03_finetuning_Qwen2_5-1_5B.qmd`, `03_introduction.qmd`, `04_evaluation.qmd`
+* Huber Daniel: `01_data.qmd`, `02_classical.qmd`, `03_finetuning.qmd`, `04_evaluation.qmd`
+* Girardin Robin: `03_finetuning_gemma_embedding_300m.qmd`, `04_evaluation_revised.qmd`
+
+## Use of AI Tools
+
+Throughout this project, generative AI tools were used to support several parts of the workflow.
+
+AI was used for debugging Python code, resolving library-specific questions (SentenceTransformers, LoRA), advising on architectural decisions such as the training of finetuning best-practices, and reviewing pull requests. AI also supported the writing of explanatory text throughout the notebook to ensure clarity and grammatical correctness, as this report is written in English as a non-native language.
+
+AI was also used during active coding sessions to accelerate boilerplate code generation, particularly for data transformation steps and visualization code.
+
+It is important to note that AI tools occasionally produced ambiguous or inconsistent answers, particularly for complex pipeline logic or edge cases in library APIs. All outputs were critically reviewed, and final decisions — including analytical interpretations, entity label choices, and topic assignments — were made manually by the team.

@@ -89,8 +89,6 @@ STAGE2_DIR = REPO_ROOT / "data/processed/stage2"
 SEED = 42
 ```
 
-# Introduction
-
 Classical embedding models such as Word2Vec and FastText remain strong baselines for many NLP tasks. However, the [MTEB Leaderboard](https://huggingface.co/spaces/mteb/leaderboard) — the standard benchmark for text embeddings — is today dominated entirely by transformer-based architectures.
 
 Among these, **[`google/embeddinggemma-300m`](https://huggingface.co/google/embeddinggemma-300m)** stands out: ranked **14th globally** as of March 13th, 2026, it achieves this with only 300 million parameters, competing with models five or more times its size. This chapter documents an attempt to fine-tune it on our internal AI & technology media corpus to improve downstream RAG retrieval quality.
@@ -107,15 +105,15 @@ Among these, **[`google/embeddinggemma-300m`](https://huggingface.co/google/embe
 | Max input tokens | 2048 |
 | Attention | Bidirectional |
 
-# Approach
+## Approach
 
-## Why Fine-Tune?
+### Why Fine-Tune?
 
 `gemma-embedding-300m` was pre-trained on a broad web corpus. Its embedding space reflects the general distribution of internet text, not the specific vocabulary and framing of AI & technology journalism. Fine-tuning nudges the geometry of the space so that domain-specific concepts cluster more tightly.
 
 This is **not** task learning. It is domain familiarisation — updating the model's representations before a later supervised stage trains a specific retrieval skill on top.
 
-## The SimCSE Loss
+### The SimCSE Loss
 
 We use **Unsupervised SimCSE** (Gao et al., 2021). The same sentence is passed twice through the model; stochastic dropout produces two slightly different embeddings that form the positive pair. All other sentences in the batch are implicit negatives.
 
@@ -129,11 +127,11 @@ We use **Unsupervised SimCSE** (Gao et al., 2021). The same sentence is passed t
 Since SimCSE requires no labels and only touches internal representations, the full 436,000-chunk corpus remains available for Phase 2 supervised training — the two stages are complementary.
 
 ::: {.callout-note}
-## Fluid vs. Crystallised Intelligence
+### Fluid vs. Crystallised Intelligence
 Phase 1 (SimCSE) expands the model's domain *knowledge* — its fluid, general representations. Phase 2 (supervised pairs) would then train a specific retrieval *skill* on top of that richer foundation. The same corpus can serve both stages without conflict.
 :::
 
-# Evaluation Design
+## Evaluation Design
 
 ```{python}
 #| eval: true
@@ -155,7 +153,7 @@ Evaluation follows two tracks:
 - **Intrinsic**: cosine similarity on synthetic positive/negative article pairs — tests whether the embedding space geometry is well-ordered.
 - **Extrinsic**: macro F1 of a logistic regression probe trained on frozen embeddings, for *sentiment* and *topic* classification.
 
-## Intrinsic Evaluation Set
+### Intrinsic Evaluation Set
 
 Because `gemma-embedding-300m` uses contextual subword representations, Word2Vec-style analogy tests are not applicable. Instead, we construct synthetic pairs via **back-translation** using [`facebook/nllb-200-distilled-600M`](https://huggingface.co/facebook/nllb-200-distilled-600M):
 
@@ -165,7 +163,7 @@ Because `gemma-embedding-300m` uses contextual subword representations, Word2Vec
 A well-ordered model should score positive pairs higher than negative ones. The **gap** between the two means is the key metric.
 
 ::: {.callout-tip}
-## Effect of Temperature and Passes
+### Effect of Temperature and Passes
 At `temp=1.0`, the model consistently picks high-probability tokens and meaning is mostly preserved across passes. At `temp=1.1`, small token-level errors compound geometrically — three passes of slightly noisy translation produce meaningful semantic drift.
 :::
 
@@ -230,9 +228,9 @@ for i, row in synth_pair.iterrows():
     print("─" * 60)
 ```
 
-# Training
+## Training
 
-## Dataset
+### Dataset
 
 ```{python}
 #| label: load-corpus
@@ -254,10 +252,10 @@ training_dataset = Dataset.from_dict({
 })
 ```
 
-## Model & Hardware
+### Model & Hardware
 
 ::: {.callout-warning}
-## Gated Model
+### Gated Model
 `google/embeddinggemma-300m` requires accepting Google's licence on Hugging Face, and a preview branch of `transformers`:
 
 ```bash
@@ -294,7 +292,7 @@ model = SentenceTransformer(
 )
 ```
 
-## Training Configuration
+### Training Configuration
 
 ```{python}
 #| label: training
@@ -344,7 +342,7 @@ trainer.train()
 model.save_pretrained(f"{str(REPO_ROOT)}/notebook/stage2/models/gemma-embedding-300-domain-adaptation")
 ```
 
-## Training Curves
+### Training Curves
 
 ```{python}
 #| label: parse-trainer-state
@@ -483,7 +481,7 @@ else:
     display(Image(str(DIST_CACHE)))
 ```
 
-# Evaluation
+## Evaluation
 
 ```{python}
 #| label: load-models
@@ -495,7 +493,7 @@ finetuned_gemma  = SentenceTransformer.load(
 )
 ```
 
-## Intrinsic Performance
+### Intrinsic Performance
 
 ```{python}
 #| label: intrinsic-compute
@@ -585,7 +583,7 @@ The overall similarity score of between original-positive pairs for the fine-tun
 Moreover, it model achieves a positive-negative gap of `{python} f"{ft_gap:.3f}"` compared to `{python} f"{pre_gap:.3f}"` for the pretrained baseline — a clear regression in embedding space quality.
 
 ::: {.callout-important}
-## Representation Regression
+### Representation Regression
 
 The training disrupted the model's existing representations. The most likely causes are:
 
@@ -596,7 +594,7 @@ The training disrupted the model's existing representations. The most likely cau
 See @sec-lessons for a corrected recipe.
 :::
 
-## Extrinsic Performance
+### Extrinsic Performance
 
 Downstream evaluation uses a logistic regression classifier trained on frozen embeddings. Performance here directly reflects embedding quality, not classifier capacity.
 
@@ -633,7 +631,7 @@ X_train_ft  = ds["X_train_ft"];  X_test_ft  = ds["X_test_ft"]
 results = {}
 ```
 
-### Sentiment Analysis
+#### Sentiment Analysis
 
 ```{python}
 #| label: sentiment-clf
@@ -656,7 +654,7 @@ for name, X_tr, X_te in [
     print(classification_report(y_test_sent, y_pred))
 ```
 
-### Topic Classification
+#### Topic Classification
 
 ```{python}
 #| label: topic-clf
@@ -684,7 +682,7 @@ for name, X_tr, X_te in [
     print(classification_report(y_test_topic, y_pred))
 ```
 
-### Summary
+#### Summary
 
 ```{python}
 #| label: fig-f1-comparison
@@ -730,10 +728,10 @@ The pretrained `gemma-embedding-300m` achieves strong baselines — **0.78** mac
 
 The alignment between intrinsic and extrinsic regressions is telling: the model did not trade general representation quality for domain-specific gains. The degradation is uniform, confirming the training simply damaged the existing representations without adding anything useful.
 
-# Lessons Learned {#sec-lessons}
+## Lessons Learned {#sec-lessons}
 
 ::: {.callout-important}
-## What Went Wrong
+### What Went Wrong
 
 Three factors combined to cause the regression:
 
@@ -744,7 +742,7 @@ Three factors combined to cause the regression:
 3. **Homogeneous corpus.** AI/tech news articles share consistent register and vocabulary, making in-batch SimCSE negatives trivially easy and producing shallow gradients rather than genuine structural learning.
 :::
 
-## Corrected Recipe
+### Corrected Recipe
 
 ```python
 from sentence_transformers.losses import CachedMultipleNegativesRankingLoss

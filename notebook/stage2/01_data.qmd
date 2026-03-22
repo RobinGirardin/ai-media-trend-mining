@@ -4,9 +4,6 @@ execute:
   eval: false
 ---
 
-
-# Data Preparation
-
 This chapter prepares all datasets needed for Stage 2. It loads the cleaned outputs from Stage 1, re-applies tokenization and lemmatization (computed in-memory in Stage 1, not persisted), derives evaluation labels for both downstream tasks, and produces stratified
 train/test splits. All outputs are written to `data/processed/stage2/` so that subsequent chapters (`02_classical_embeddings.qmd`, `03_finetuning.qmd`, `04_evaluation.qmd`) can load them independently.
 

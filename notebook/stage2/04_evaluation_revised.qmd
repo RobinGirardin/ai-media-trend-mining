@@ -1,4 +1,7 @@
-# Comparative Evaluation
+---
+title: "Comparative Evaluation"
+---
+
 
 This chapter brings together the results from all Stage 2 models - classical embeddings
 (Word2Vec, FastText), fine-tuned compact LLMs for sentiment classification (TinyLlama 1.1B,

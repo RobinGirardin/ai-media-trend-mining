@@ -28,21 +28,21 @@ execute:
 
 > **Environment:** Google Colab Pro (A100 GPU).
 
-# Introduction
+## Introduction
 
 This section presents the fine-tuning conducted with **Qwen2.5-1.5B** for the topic classification task in the AI Media Trend Mining project. The objective was to evaluate whether a parameter-efficient fine-tuning strategy could improve classification performance compared with the baseline model.
 
 The original training workflow was executed in Google Colab due to the computational demands of large language model training. For the final Quarto report, the focus is placed on the **saved outputs only**, including evaluation tables, comparison files, confusion matrices, and training curves. This makes the report reproducible and lightweight, while still documenting the full modelling process and the final outcomes.
 
-# Approach
+## Approach
 
-## Task definition
+### Task definition
 
 The task in this stage was **topic classification**. Each text sample had to be assigned to a predefined topic category. The experiment compared the performance of:
 1. a baseline model before task-specific fine-tuning, and  
 2. the final model after LoRA-based fine-tuning.
 
-## General workflow
+### General workflow
 
 The overall workflow consisted of the following steps:
 
@@ -81,7 +81,7 @@ RESULTS_DIR = BASE_DIR / "results" / "qwen2_5-1_5b" / "results" / "qwen_topic"
 
 The report uses the local project structure rather than the original Google Drive paths from Colab. All figures, metrics, and output tables shown below are read directly from the saved files in the project folder.
 
-# Load and inspect data
+## Load and inspect data
 
 ```{python}
 #| label: load_and_inspect
@@ -100,7 +100,7 @@ print(train_df.columns.tolist())
 display(train_df.head(3))
 ```
 
-## Keep only rows with valid topic labels
+### Keep only rows with valid topic labels
 
 ```{python}
 #| label: keep_valid_rows 
@@ -116,7 +116,7 @@ print("\nTopic distribution in train:")
 print(train_df["topic_label"].value_counts())
 ```
 
-## Prepare data for topic
+### Prepare data for topic
 
 We will use 3 columns media_id, full_content and topic_label
 
@@ -132,7 +132,7 @@ test_df  = test_df[["media_id", "model_text", "topic_label"]].copy()
 display(train_df.head(3))
 ```
 
-## Encode topic labels
+### Encode topic labels
 
 ```{python}
 #| label: topic_labe
@@ -150,7 +150,7 @@ for k, v in label2id.items():
     print(f"{v}: {k}")
 ```
 
-## Validation split from train
+### Validation split from train
 
 Creating a validation split from the training set.
 
@@ -170,7 +170,7 @@ print("Val:  ", val_df.shape)
 print("Test: ", test_df.shape)
 ```
 
-# Convert to Hugging Face datasets
+## Convert to Hugging Face datasets
 
 ```{python}
 #| label: Training_dataset
@@ -185,7 +185,7 @@ dataset = DatasetDict({
 dataset
 ```
 
-# Load tokenizer and model
+## Load tokenizer and model
 
 We will use the sequence-classification version of Qwen.
 
@@ -222,7 +222,7 @@ model.config.pad_token_id = tokenizer.pad_token_id
 print("Loaded model.")
 ```
 
-# Configure LoRA
+## Configure LoRA
 
 LoRA, or **Low-Rank Adaptation**, is a parameter-efficient fine-tuning method for large neural networks. Instead of updating all pretrained weights, LoRA adds small trainable low-rank matrices to selected layers of the model. This drastically reduces the number of trainable parameters.
 
@@ -230,7 +230,7 @@ In practical terms, LoRA allows a large language model to adapt to a specific ta
 
 
 ::: {.callout-note collapse="true"}
-## Lora parameters
+### Lora parameters
 `prepare_model_for_kbit_training(model)`  
 Prepares the quantized model for stable low-bit fine-tuning.
 
@@ -311,11 +311,11 @@ model = get_peft_model(model, lora_config)
 model.print_trainable_parameters()
 ```
 
-# Tokenize
+## Tokenize
 
 Before tokenizing the texts for model training, the length of the input sequences was examined. This step was important because transformer models require a fixed or capped input length, and the choice of maximum sequence length affects both computational cost and the amount of text retained from each example.
 
-## Inspecting the text length distribution
+### Inspecting the text length distribution
 
 The first step was to inspect the general length of the training texts using simple character and word counts. This provided a quick overview of how long the input documents were before tokenization. At this stage, the goal was not yet to determine the exact sequence length for the model, but rather to identify whether the dataset mainly consisted of short, medium, or very long texts.
 
@@ -333,7 +333,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 
-# quick text stats using existing model_text
+## quick text stats using existing model_text
 train_df["char_len"] = train_df["model_text"].astype(str).str.len()
 train_df["word_len"] = train_df["model_text"].astype(str).str.split().str.len()
 
@@ -368,7 +368,7 @@ for cutoff in [128, 256, 384, 512, 768]:
 ```
 
 ::: {.callout-note collapse="true"}
-## Token length summary on sample
+### Token length summary on sample
 
 count     2000.000000  
 mean      1828.607000   
@@ -417,7 +417,7 @@ tokenized_dataset.set_format("torch")
 tokenized_dataset
 ```
 
-# Metrics
+## Metrics
 The following code defines the evaluation metrics used during fine-tuning.
 
 ```{python}
@@ -443,7 +443,7 @@ def compute_metrics(eval_pred):
     }
 ```
 
-# Training Setup
+## Training Setup
 
 ```{python}
 #| label: training_setup
@@ -489,7 +489,7 @@ test_results = trainer.evaluate(eval_dataset=tokenized_dataset["test"])
 print(test_results)
 ```
 
-## Baseline evaluation
+### Baseline evaluation
 
 ```{python}
 #| label: basline_evaluation
@@ -520,23 +520,23 @@ def evaluate_and_save(trainer, dataset, split_name, stage_name, label_names, res
         "macro_f1": float(f1),
     }
 
-    # save metrics json
+    ## save metrics json
     with open(results_dir / f"{stage_name}_{split_name}_metrics.json", "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2, ensure_ascii=False)
 
-    # save classification report csv
+    ## save classification report csv
     report = classification_report(
         y_true, y_pred, target_names=label_names, output_dict=True, zero_division=0
     )
     report_df = pd.DataFrame(report).transpose()
     report_df.to_csv(results_dir / f"{stage_name}_{split_name}_classification_report.csv", index=True)
 
-    # save confusion matrix csv
+    ## save confusion matrix csv
     cm = confusion_matrix(y_true, y_pred)
     cm_df = pd.DataFrame(cm, index=label_names, columns=label_names)
     cm_df.to_csv(results_dir / f"{stage_name}_{split_name}_confusion_matrix.csv", index=True)
 
-    # save row-level predictions
+    ## save row-level predictions
     pred_df = pd.DataFrame({
         "true_label_id": y_true,
         "pred_label_id": y_pred,
@@ -587,7 +587,7 @@ metrics_df = pd.DataFrame([metrics])
 metrics_df
 ```
 
-# Train
+## Train
 
 
 ```{python}
@@ -598,7 +598,7 @@ trainer.train()
 ```
 
 ::: {.callout-note collapse="true"}
-## training output 
+### training output 
 /usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py:1181: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. Starting in PyTorch 2.9, calling checkpoint without use_reentrant will raise an exception. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.  
   return fn(*args, **kwargs)  
 
@@ -619,7 +619,7 @@ trainer.train()
 {'train_runtime': '810.5', 'train_samples_per_second': '17.41', 'train_steps_per_second': '1.088', 'train_loss': '1.27', 'epoch': '2'}
 :::
 
-# Save Model
+## Save Model
 
 ```{python}
 #| label: save
@@ -628,28 +628,28 @@ trainer.train()
 
 
 
-# ===== final save paths =====
+## ===== final save paths =====
 FINAL_ADAPTER_DIR = PROJECT_DIR / "output" / "models" / "qwen_topic_lora_final"
 FINAL_MERGED_DIR = PROJECT_DIR / "output" / "models" / "qwen_topic_full_merged"
 FINAL_ADAPTER_DIR.mkdir(parents=True, exist_ok=True)
 FINAL_MERGED_DIR.mkdir(parents=True, exist_ok=True)
 
-# ===== 1) save adapter + tokenizer =====
+## ===== 1) save adapter + tokenizer =====
 trainer.model.save_pretrained(FINAL_ADAPTER_DIR)
 tokenizer.save_pretrained(FINAL_ADAPTER_DIR)
 
-# ===== 2) save label mappings =====
+## ===== 2) save label mappings =====
 with open(FINAL_ADAPTER_DIR / "label2id.json", "w", encoding="utf-8") as f:
     json.dump(label2id, f, ensure_ascii=False, indent=2)
 
 with open(FINAL_ADAPTER_DIR / "id2label.json", "w", encoding="utf-8") as f:
     json.dump({str(k): v for k, v in id2label.items()}, f, ensure_ascii=False, indent=2)
 
-# ===== 3) save training log =====
+## ===== 3) save training log =====
 log_history = pd.DataFrame(trainer.state.log_history)
 log_history.to_csv(FINAL_ADAPTER_DIR / "qwen_topic_training_log.csv", index=False)
 
-# ===== 4) optionally save evaluation metrics =====
+## ===== 4) optionally save evaluation metrics =====
 eval_metrics = trainer.evaluate()
 with open(FINAL_ADAPTER_DIR / "eval_metrics.json", "w", encoding="utf-8") as f:
     json.dump(eval_metrics, f, ensure_ascii=False, indent=2)
@@ -657,8 +657,8 @@ with open(FINAL_ADAPTER_DIR / "eval_metrics.json", "w", encoding="utf-8") as f:
 print(f"Adapter saved to: {FINAL_ADAPTER_DIR}")
 print(f"Training log saved to: {FINAL_ADAPTER_DIR / 'qwen_topic_training_log.csv'}")
 
-# ===== 5) OPTIONAL: merge adapter into base model and save full standalone model =====
-# This can take more RAM / disk space.
+## ===== 5) OPTIONAL: merge adapter into base model and save full standalone model =====
+## This can take more RAM / disk space.
 merged_model = trainer.model.merge_and_unload()
 merged_model.save_pretrained(FINAL_MERGED_DIR, safe_serialization=True)
 tokenizer.save_pretrained(FINAL_MERGED_DIR)
@@ -666,7 +666,7 @@ tokenizer.save_pretrained(FINAL_MERGED_DIR)
 print(f"Merged full model saved to: {FINAL_MERGED_DIR}")
 ```
 
-# Evaluate on test set
+## Evaluate on test set
 
 ```{python}
 #| label: evaluate
@@ -831,7 +831,7 @@ To construct the training labels, topics were first generated using a BERT-based
 
 Since the supervision labels were generated algorithmically, the reported metrics reflect agreement with the upstream topic model rather than direct validation against manually annotated ground truth.
 
-## Training and Validation Loss
+### Training and Validation Loss
 
 ```{python}
 #| label: loss_curve
@@ -858,7 +858,7 @@ plt.show()
 
 The loss curves indicate that the fine-tuned Qwen model converged effectively during training. Training loss decreased sharply over the course of optimization, while validation loss remained low and improved slightly from the first to the second epoch. This pattern suggests stable learning and does not indicate obvious overfitting within the two-epoch training schedule.
 
-## Macro F1
+### Macro F1
 
 ```{python}
 #| label: macro_f1
@@ -878,7 +878,7 @@ plt.show()
 
 The steady increase in validation Macro-F1 suggests that the model continued to benefit from training through the second epoch, with no evidence of performance deterioration on the validation set.
 
-## Confusion Matrix
+### Confusion Matrix
 
 ```{python}
 #| label: confusion_matrix
@@ -915,14 +915,14 @@ plt.show()
 
 
 ::: {.callout-note collapse="true"}
-## confusion matrix normalized 
+### confusion matrix normalized 
 
 ```{python}
 #| label: confusion_matrix2
 #| eval: false
 cm = cm_df.values.astype(float)
 
-# Row-normalize
+## Row-normalize
 row_sums = cm.sum(axis=1, keepdims=True)
 cm_norm = np.divide(cm, row_sums, out=np.zeros_like(cm), where=row_sums != 0)
 

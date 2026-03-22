@@ -1,4 +1,7 @@
-# Fine-Tuning Compact LLMs for Sentiment Classification
+---
+title: "Fine-Tuning Compact LLMs for Sentiment Classification"
+---
+
 
 This chapter fine-tunes two compact open-source LLMs for three-class sentiment classification
 (negative / neutral / positive) using `AutoModelForSequenceClassification` with QLoRA
@@ -168,13 +171,13 @@ def compute_metrics(eval_pred):
 
 ---
 
-# Model 1 - TinyLlama 1.1B
+## Model 1 - TinyLlama 1.1B
 
 TinyLlama 1.1B is a compact open-source decoder model trained on 3 trillion tokens. Despite
 its small size, it provides strong general language understanding and trains efficiently with
 QLoRA on an A100 GPU.
 
-## Load model
+### Load model
 
 ```{python}
 #| label: load-model-tinyllama
@@ -198,7 +201,7 @@ model = get_peft_model(model, peft_config)
 model.print_trainable_parameters()
 ```
 
-## Training arguments
+### Training arguments
 
 ```{python}
 #| label: training-args-tinyllama
@@ -219,7 +222,7 @@ training_args = TrainingArguments(
 )
 ```
 
-## Train
+### Train
 
 ```{python}
 #| label: run-training-tinyllama
@@ -237,7 +240,7 @@ trainer = Trainer(
 trainer.train()
 ```
 
-## Training loss curve
+### Training loss curve
 
 ```{python}
 #| label: training-loss-curve-tinyllama
@@ -260,7 +263,7 @@ plt.savefig(PROJECT_DIR / "tinyllama_training_loss.png")
 plt.show()
 ```
 
-## Evaluate and save
+### Evaluate and save
 
 ```{python}
 #| label: evaluate-tinyllama
@@ -286,7 +289,7 @@ pd.DataFrame({"true": y_true_labels, "pred": y_pred_labels}).to_csv(
     PROJECT_DIR / "tinyllama_predictions.csv", index=False)
 ```
 
-## TinyLlama Results
+### TinyLlama Results
 
 TinyLlama 1.1B was fine-tuned on an A100 GPU in **28 minutes**. The training loss declined
 steadily from ~2.5 to ~0.65 over 2,400 steps, with a notable drop around step 900. The curve
@@ -304,12 +307,12 @@ additional epochs.
 
 ---
 
-# Model 2 - Gemma 2 2B
+## Model 2 - Gemma 2 2B
 
 Gemma 2 2B is Google's compact open-source model, roughly twice the size of TinyLlama.
 It requires a HuggingFace account with accepted usage terms and an `HF_TOKEN` secret in Colab.
 
-## Load model
+### Load model
 
 ```{python}
 #| label: load-model-gemma
@@ -337,7 +340,7 @@ model = get_peft_model(model, peft_config)
 model.print_trainable_parameters()
 ```
 
-## Training arguments
+### Training arguments
 
 ```{python}
 #| label: training-args-gemma
@@ -359,7 +362,7 @@ training_args = TrainingArguments(
 )
 ```
 
-## Train
+### Train
 
 ```{python}
 #| label: run-training-gemma
@@ -377,7 +380,7 @@ trainer = Trainer(
 trainer.train()
 ```
 
-## Training loss curve
+### Training loss curve
 
 ```{python}
 #| label: training-loss-curve-gemma
@@ -398,7 +401,7 @@ plt.savefig(PROJECT_DIR / "gemma2_training_loss.png")
 plt.show()
 ```
 
-## Evaluate and save
+### Evaluate and save
 
 ```{python}
 #| label: evaluate-gemma
@@ -424,7 +427,7 @@ pd.DataFrame({"true": y_true_labels, "pred": y_pred_labels}).to_csv(
     PROJECT_DIR / "gemma2_predictions.csv", index=False)
 ```
 
-## Gemma 2 Results
+### Gemma 2 Results
 
 Gemma 2 2B was fine-tuned on an A100 GPU in **66 minutes**. The training loss started
 higher (~6.8) due to the larger randomly-initialized classification head, but declined
@@ -442,9 +445,9 @@ would benefit more from additional epochs.
 
 ---
 
-# Fine-Tuning Comparison
+## Fine-Tuning Comparison
 
-## Classification Performance
+### Classification Performance
 
 Despite being roughly twice the size, Gemma 2 2B only marginally outperforms TinyLlama 1.1B
 (+0.4% Macro-F1). Both models show similar class-level patterns: neutral is predicted most
@@ -456,7 +459,7 @@ the class imbalance in the dataset.
 | TinyLlama 1.1B | 1.1B | 0.757 | 28 min |
 | Gemma 2 2B | 2B | 0.761 | 66 min |
 
-## Environmental Impact
+### Environmental Impact
 
 We estimate the CO2 footprint of both fine-tuning runs based on A100 TDP (400W), a PUE
 factor of 1.1 for data center overhead, and the Swiss grid carbon intensity of 100 g CO2/kWh.
