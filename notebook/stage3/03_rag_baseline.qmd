@@ -266,10 +266,84 @@ print(f"ChromaDB collection 'rag_baseline': {collection.count():,} documents")
 
 ```{python}
 #| label: rag-pipeline
+#| eval: true
+#| code-summary: "Build RAG pipeline (cf. Cleantech RAG tutorial)"
+
+# LLM
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+# Prompt template - analog tutorial
+template = template = """You are an assistant for question-answering tasks about AI trends.
+Use the following retrieved context to answer the question.
+Base your answer strictly on the provided context. 
+If the context contains relevant information, use it even if it is partial.
+Keep the answer concise but informative.
+
+Question: {question}
+
+Context: {context}
+
+Answer:
+"""
+rag_prompt = ChatPromptTemplate.from_template(template)
+
+# Retriever from ChromaDB
+store = Chroma(
+    client=chroma_client,
+    collection_name="rag_baseline",
+    embedding_function=embedding_model,
+)
+retriever = store.as_retriever(
+    search_type="similarity",
+    search_kwargs={"k": 6},
+)
+
+# RAG chain - analog tutorial
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+rag_chain = RunnableParallel(
+    {
+        "context": retriever,
+        "question": RunnablePassthrough()
+    }
+).assign(answer=(
+    RunnablePassthrough.assign(context=(lambda x: format_docs(x["context"])))
+    | rag_prompt
+    | llm
+    | StrOutputParser()
+))
+
+print("RAG pipeline ready.")
 ```
 
 ## Example Queries
 
 ```{python}
-#| label: example-queries
+#| label: example-query-1
+#| eval: true
+#| code-summary: "Example queries against RAG baseline"
+
+result = rag_chain.invoke("What are the main trends in generative AI in 2025?")
+
+print("Question:", result["question"])
+print("\nAnswer:", result["answer"])
+print("\nSources:")
+for doc in result["context"]:
+    print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
 ```
+
+```{python}
+#| label: example-query-2
+#| eval: true
+#| code-summary: "Example queries against RAG baseline"
+
+result = rag_chain.invoke(
+    "What was the impact of DeepSeek-R1 release on the AI industry?"
+)
+print("Answer:", result["answer"])
+print("\nSources:")
+for doc in result["context"]:
+    print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
+```
+
