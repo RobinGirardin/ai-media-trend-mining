@@ -1,0 +1,23 @@
+# Preface {.unnumbered}
+
+This book documents Stage 3 of the Computational Language Technologies project at HSLU, building on the data pipeline, exploratory analysis, and embeddings from Stages 1 and 2.
+
+## Dataset
+
+The AI Media Dataset (Kaggle) consists of 16,317 news articles covering artificial intelligence topics, collected between September 2024 and August 2025.
+
+## Stage 3 Overview
+
+Stage 3 implements a Retrieval-Augmented Generation (RAG) system over the AI Media Dataset, integrating structured knowledge graphs with unstructured text retrieval:
+
+- **Part I – Q&A Dataset:** Construction of 200–300 Q&A pairs from representative passages, categorised into factual, analytical, and comparative types.
+- **Part II – RAG Baseline:** Text-only RAG pipeline (Config A) using dense retrieval with ChromaDB.
+- **Part III – Graph-Augmented RAG:** Entity-anchored retrieval integrating the provided knowledge graph (Config B) and our Stage 1 knowledge graph (Config C).
+- **Part IV – Evaluation:** RAGAS-based comparison of all three configurations across faithfulness, relevance, and context grounding.
+- **Part V – Enhancement:** HyDE / Multi-Query retrieval as an optional bonus improvement.
+
+## Team
+
+Sever Alin, Girardin Robin & Huber Daniel
+
+*Course: Computational Language Technologies, HSLU Applied Information and Data Science*

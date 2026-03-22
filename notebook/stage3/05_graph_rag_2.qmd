@@ -1,0 +1,43 @@
+---
+title: "Graph-Augmented RAG: Stage 1 Graph (Config C)"
+execute:
+  eval: false
+---
+
+This chapter extends the baseline RAG with entity-anchored retrieval using our own knowledge graph extracted in Stage 1 (33,182 nodes, 111,115 edges).
+
+## Setup
+
+```{python}
+#| label: imports
+```
+
+## Loading the Stage 1 Knowledge Graph
+
+```{python}
+#| label: load-graph
+```
+
+## Entity Extraction from Queries
+
+```{python}
+#| label: entity-extraction
+```
+
+## Entity-Anchored Retrieval
+
+```{python}
+#| label: graph-retrieval
+```
+
+## RAG Pipeline with Graph Context
+
+```{python}
+#| label: rag-pipeline
+```
+
+## Example Queries
+
+```{python}
+#| label: example-queries
+```

@@ -1,0 +1,177 @@
+---
+title: "RAG Baseline (Config A)"
+execute:
+  eval: false
+---
+
+This chapter implements the baseline RAG pipeline using dense retrieval only, without any knowledge graph integration. It serves as the reference configuration for comparison in Chapter 06.
+
+## Setup
+
+```{python}
+#| label: imports
+#| code-summary: "Show imports"
+
+import os
+import json
+import pickle
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from dotenv import load_dotenv
+from tqdm import tqdm
+
+# LangChain
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_chroma import Chroma
+from langchain_core.documents import Document
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnableParallel, RunnablePassthrough
+
+# ChromaDB
+import chromadb
+
+load_dotenv()
+warnings.filterwarnings("ignore")
+
+# Paths - analog zu Stage 1/2
+REPO_ROOT = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
+STAGE1_DIR = REPO_ROOT / "data" / "processed"
+STAGE3_DIR = REPO_ROOT / "data" / "processed" / "stage3"
+STAGE3_DIR.mkdir(parents=True, exist_ok=True)
+```
+
+## Data Loading & Joining
+
+```{python}
+#| label: data-loading
+#| code-summary: "Load and join Stage 1 data"
+
+# Load cleaned chunks from Stage 1
+chunks_df = pd.read_csv(STAGE1_DIR / "media_has_chunk_cleaned.csv")
+print(f"Chunks: {len(chunks_df):,}")
+
+# Load cleaned media from Stage 1 (for metadata: title, url, domain)
+media_df = pd.read_csv(STAGE1_DIR / "media_cleaned.csv",
+                       usecols=["media_id", "title", "url", "domain"])
+print(f"Articles: {len(media_df):,}")
+
+# Join metadata onto chunks
+chunks_df = chunks_df.merge(media_df, on="media_id", how="left")
+
+# Generate chunk_id
+chunks_df = chunks_df.reset_index(drop=True)
+chunks_df["chunk_id"] = chunks_df.index
+
+print(f"\nColumns: {chunks_df.columns.tolist()}")
+print(f"Missing metadata: {chunks_df['title'].isna().sum()}")
+chunks_df.head(3)
+```
+
+## Chunking
+
+```{python}
+#| label: chunking
+#| code-summary: "Split oversized chunks"
+
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=1024,
+    chunk_overlap=128,
+    separators=["\n\n", "\n", "(?<=\. )", " ", ""],
+    length_function=len,
+)
+
+# Check distribution before
+print("Before splitting:")
+print(f"  Chunks > 1024 chars: {(chunks_df['chunked_content'].str.len() > 1024).sum():,}")
+print(f"  Chunks > 2048 chars: {(chunks_df['chunked_content'].str.len() > 2048).sum():,}")
+
+# Split oversized chunks into LangChain Documents
+documents = []
+for _, row in tqdm(chunks_df.iterrows(), total=len(chunks_df)):
+    text = str(row["chunked_content"])
+    metadata = {
+        "chunk_id":  int(row["chunk_id"]),
+        "media_id":  int(row["media_id"]),
+        "title":     str(row["title"]),
+        "url":       str(row["url"]),
+        "domain":    str(row["domain"]),
+        "sentiment": str(row["sentiment"]),
+    }
+    if len(text) > 1024:
+        sub_chunks = splitter.split_text(text)
+        for i, sub in enumerate(sub_chunks):
+            sub_meta = {**metadata, "sub_chunk": i}
+            documents.append(Document(page_content=sub, metadata=sub_meta))
+    else:
+        documents.append(Document(page_content=text, metadata=metadata))
+
+print(f"\nAfter splitting:")
+print(f"  Total documents: {len(documents):,}")
+```
+
+## Embeddings
+
+```{python}
+#| label: embeddings
+#| code-summary: "Generate embeddings with checkpointing"
+
+EMBEDDINGS_PATH = STAGE3_DIR / "embeddings_gte.npy"
+DOCS_PATH = STAGE3_DIR / "documents.pkl"
+
+embedding_model = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_kwargs={"device": "cpu"},
+)
+
+if EMBEDDINGS_PATH.exists() and DOCS_PATH.exists():
+    print("Loading embeddings from checkpoint...")
+    embeddings = np.load(EMBEDDINGS_PATH)
+    with open(DOCS_PATH, "rb") as f:
+        documents = pickle.load(f)
+    print(f"Loaded {len(embeddings):,} embeddings")
+else:
+    print("Generating embeddings (this will take a while)...")
+    embeddings = []
+    BATCH_SIZE = 256
+
+    for i in tqdm(range(0, len(documents), BATCH_SIZE)):
+        batch = documents[i : i + BATCH_SIZE]
+        texts = [doc.page_content for doc in batch]
+        batch_embeddings = embedding_model.embed_documents(texts)
+        embeddings.extend(batch_embeddings)
+
+        # Checkpoint every 10'000 documents
+        if (i // BATCH_SIZE) % (10_000 // BATCH_SIZE) == 0 and i > 0:
+            np.save(EMBEDDINGS_PATH, np.array(embeddings))
+            print(f"  Checkpoint saved at {i:,}")
+
+    embeddings = np.array(embeddings)
+    np.save(EMBEDDINGS_PATH, embeddings)
+    with open(DOCS_PATH, "wb") as f:
+        pickle.dump(documents, f)
+    print(f"\nSaved {len(embeddings):,} embeddings to {EMBEDDINGS_PATH}")
+```
+
+## ChromaDB Indexing
+
+```{python}
+#| label: chromadb-indexing
+```
+
+## RAG Pipeline
+
+```{python}
+#| label: rag-pipeline
+```
+
+## Example Queries
+
+```{python}
+#| label: example-queries
+```

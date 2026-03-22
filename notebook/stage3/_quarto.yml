@@ -1,0 +1,39 @@
+project:
+  type: book
+
+book:
+  title: "Computational Language Technologies - Stage 3"
+  subtitle: "Retrieval-Augmented Generation for AI Trend Analysis"
+  author: "Sever Alin, Girardin Robin & Huber Daniel"
+  date: today
+  chapters:
+    - index.qmd
+    - part: "Part I: Q&A Dataset"
+      chapters:
+        - 02_qa_dataset.qmd
+    - part: "Part II: RAG Baseline"
+      chapters:
+        - 03_rag_baseline.qmd
+    - part: "Part III: Graph-Augmented RAG"
+      chapters:
+        - 04_graph_rag_1.qmd
+        - 05_graph_rag_2.qmd
+    - part: "Part IV: Evaluation"
+      chapters:
+        - 06_evaluation.qmd
+    - part: "Part V: Enhancement"
+      chapters:
+        - 07_enhancement.qmd
+
+format:
+  html:
+    theme:
+      - cosmo
+      - brand
+    code-fold: true
+    code-summary: "Show/Hide code"
+    toc: true
+    toc-depth: 3
+    number-sections: true
+
+embed-resources: true

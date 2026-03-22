@@ -1,0 +1,61 @@
+---
+title: "Q&A Dataset Construction"
+execute:
+  eval: false
+---
+
+This chapter constructs the evaluation dataset used across all RAG configurations. We select representative passages from the AI Media Dataset, generate Q&A pairs using GPT-4o, categorise them by type, and manually review them for quality.
+
+## Setup
+
+```{python}
+#| label: imports
+#| code-summary: "Show imports"
+
+import json
+import warnings
+from pathlib import Path
+
+import pandas as pd
+from dotenv import load_dotenv
+from tqdm import tqdm
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+load_dotenv()
+warnings.filterwarnings("ignore")
+
+REPO_ROOT = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
+STAGE1_DIR = REPO_ROOT / "data" / "processed"
+STAGE3_DIR = REPO_ROOT / "data" / "processed" / "stage3"
+STAGE3_DIR.mkdir(parents=True, exist_ok=True)
+
+# OpenAI models - analog Cleantech tutorial
+LLM_MODEL   = "gpt-4o"        # Q&A generation
+JUDGE_MODEL = "gpt-4o-mini"   # cheaper, for RAGAS later
+```
+
+## Passage Selection
+
+```{python}
+#| label: passage-selection
+```
+
+## Q&A Generation
+
+```{python}
+#| label: qa-generation
+```
+
+## Categorisation & Review
+
+```{python}
+#| label: categorisation
+```
+
+## Dataset Statistics
+
+```{python}
+#| label: statistics
+```

@@ -2,6 +2,9 @@
 /.quarto/
 /_freeze/
 
+.env
+.env.*
+
 # Python bytecode and cache
 __pycache__/
 _cache/
