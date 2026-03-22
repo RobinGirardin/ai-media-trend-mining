@@ -4,12 +4,17 @@ execute:
   eval: false
 ---
 
-This chapter implements the baseline RAG pipeline using dense retrieval only, without any knowledge graph integration. It serves as the reference configuration for comparison in Chapter 06.
+This chapter implements Config A - the text-only RAG baseline. It uses dense vector retrieval over the AI Media Dataset without any knowledge graph integration. This configuration serves as the reference point for comparing the graph-augmented approaches in Chapters 4 and 5.
+
+The pipeline follows the structure introduced in the Cleantech RAG tutorial (Perruchoud & Rowlands) and adapts it to the AI Media Dataset from Stage 1.
 
 ## Setup
 
+All required libraries are imported here. The key components are LangChain for the RAG pipeline, ChromaDB as the vector store, and HuggingFace for the embedding model. Paths are resolved relative to the repository root, consistent with Stage 1 and 2.
+
 ```{python}
 #| label: imports
+#| eval: true
 #| code-summary: "Show imports"
 
 import os
@@ -48,6 +53,8 @@ STAGE3_DIR.mkdir(parents=True, exist_ok=True)
 
 ## Data Loading & Joining
 
+Stage 1 produced two cleaned tables that we reuse directly here: `media_has_chunk_cleaned.csv` contains the paragraph-level chunks with sentiment labels, and `media_cleaned.csv` contains article-level metadata (title, URL, domain). We join them on `media_id` to attach metadata to each chunk, and generate a unique `chunk_id` for later reference in ChromaDB.
+
 ```{python}
 #| label: data-loading
 #| code-summary: "Load and join Stage 1 data"
@@ -74,6 +81,10 @@ chunks_df.head(3)
 ```
 
 ## Chunking
+
+The Stage 1 chunks are paragraph-level segments derived from the original article structure - each element in the raw `content` list corresponds to one chunk. This is a better segmentation than re-splitting from `full_content`, which has no paragraph boundaries.
+
+However, a small number of chunks exceed the 1,024-character limit suitable for embedding and retrieval. We use `RecursiveCharacterTextSplitter` to split oversized chunks while preserving a 128-character overlap between adjacent sub-chunks, ensuring no context is lost at boundaries. Each chunk is wrapped in a LangChain `Document` object with full metadata attached.
 
 ```{python}
 #| label: chunking
@@ -126,6 +137,8 @@ with open(DOCS_PATH, "wb") as f:
 print(f"Saved {len(documents):,} documents")
 ```
 
+The chunk inspection below shows a concrete example of a split chunk, including the 128-character overlap between sub-chunk 0 and sub-chunk 1. This overlap ensures the retriever can find relevant context even if a query matches text near a chunk boundary.
+
 ```{python}
 #| label: chunks-inspection
 #| code-summary: "Load and inspect split chunks"
@@ -162,6 +175,10 @@ print(f"Anfang von Sub-chunk 1: {example.page_content[:128]}...")
 ```
 
 ## Embeddings
+
+We use `sentence-transformers/all-MiniLM-L6-v2` (22M parameters, 384 dimensions) as the embedding model. This is the same model used in Stage 1 for BERTopic, ensuring consistency across stages. The model runs locally on CPU - no API costs are incurred.
+
+Embeddings are generated in batches of 256 with checkpointing every 10,000 documents to protect against interruptions. If the embedding file already exists, it is loaded directly from disk.
 
 ```{python}
 #| label: embeddings
@@ -205,6 +222,8 @@ else:
 ```
 
 ## ChromaDB Indexing
+
+We use ChromaDB as the vector store, with cosine similarity as the distance metric - consistent with the Cleantech RAG tutorial. The collection is persisted to disk so it only needs to be built once. Subsequent runs load the existing collection directly.
 
 ```{python}
 #| label: chromadb-indexing
@@ -264,16 +283,26 @@ print(f"ChromaDB collection 'rag_baseline': {collection.count():,} documents")
 
 ## RAG Pipeline
 
+The RAG chain follows the structure from the Cleantech RAG tutorial. It consists of three components: a retriever that fetches the top-k most similar chunks from ChromaDB, a prompt template that instructs the LLM to answer strictly based on the retrieved context, and GPT-4o as the generating model.
+
+We retrieve `k=6` chunks per query and apply a deduplication filter that limits results to one chunk per article URL. This prevents a single article from dominating the context window when multiple chunks from the same source are retrieved.
+
 ```{python}
 #| label: rag-pipeline
 #| eval: true
 #| code-summary: "Build RAG pipeline (cf. Cleantech RAG tutorial)"
 
+# Embedding model (needed for ChromaDB retriever)
+embedding_model = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_kwargs={"device": "cpu"},
+)
+
 # LLM
 llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
-# Prompt template - analog tutorial
-template = template = """You are an assistant for question-answering tasks about AI trends.
+# Prompt template
+template = """You are an assistant for question-answering tasks about AI trends.
 Use the following retrieved context to answer the question.
 Base your answer strictly on the provided context. 
 If the context contains relevant information, use it even if it is partial.
@@ -298,13 +327,25 @@ retriever = store.as_retriever(
     search_kwargs={"k": 6},
 )
 
-# RAG chain - analog tutorial
+# Deduplicate retrieved chunks by URL (max 1 per article)
+def deduplicate_by_url(docs, max_per_url: int = 1):
+    seen = {}
+    result = []
+    for doc in docs:
+        url = doc.metadata["url"]
+        seen[url] = seen.get(url, 0) + 1
+        if seen[url] <= max_per_url:
+            result.append(doc)
+    return result
+
+# Format docs for prompt
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
+# RAG chain - analog tutorial
 rag_chain = RunnableParallel(
     {
-        "context": retriever,
+        "context": retriever | deduplicate_by_url,
         "question": RunnablePassthrough()
     }
 ).assign(answer=(
@@ -319,10 +360,14 @@ print("RAG pipeline ready.")
 
 ## Example Queries
 
+We test Config A with three queries covering different aspects of the corpus: a broad trend question, a specific event-driven question, and a thematic question about ethics and regulation. These examples illustrate both the strengths and limitations of text-only retrieval, and serve as a qualitative baseline for comparison with the graph-augmented configurations in following chapters.
+
+**Query 1** is intentionally broad. The retrieved chunks are mostly from marketing-oriented articles, resulting in a surface-level answer. This reflects a genuine limitation of dense retrieval for high-level trend questions.
+
 ```{python}
 #| label: example-query-1
 #| eval: true
-#| code-summary: "Example queries against RAG baseline"
+#| code-summary: "Example query 1 on the RAG baseline"
 
 result = rag_chain.invoke("What are the main trends in generative AI in 2025?")
 
@@ -333,10 +378,12 @@ for doc in result["context"]:
     print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
 ```
 
+**Query 2** targets a specific, well-documented event in the corpus - the DeepSeek-R1 release in January 2025. The retriever finds highly relevant chunks from multiple sources, and the LLM produces a precise, well-grounded answer.
+
 ```{python}
 #| label: example-query-2
 #| eval: true
-#| code-summary: "Example queries against RAG baseline"
+#| code-summary: "Example query 2 on the RAG baseline"
 
 result = rag_chain.invoke(
     "What was the impact of DeepSeek-R1 release on the AI industry?"
@@ -347,3 +394,21 @@ for doc in result["context"]:
     print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
 ```
 
+**Query 3** tests a thematic question about AI regulation and ethics. The retriever successfully identifies relevant articles from diverse domains, and the LLM synthesizes a coherent answer from the retrieved context.
+
+```{python}
+#| label: example-query-3
+#| eval: true
+#| code-summary: "Example query 3 on the RAG baseline"
+result = rag_chain.invoke(
+    "What are the main concerns around AI regulation and ethics in 2025?"
+)
+print("Answer:", result["answer"])
+print("\nSources:")
+for doc in result["context"]:
+    print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
+```
+
+**Config A of the RAG** demonstrates that dense vector retrieval alone provides a solid foundation for question answering over the AI Media Dataset. Specific, event-driven queries - such as the DeepSeek-R1 release - yield precise, well-grounded answers backed by diverse sources. Broad trend questions reveal a natural limitation: without structured knowledge, the retriever cannot distinguish between central and peripheral articles on a topic.
+
+The following chapters address this gap by integrating knowledge graphs into the retrieval process. **Config B** uses the provided graph.json, while **Config C** uses the knowledge graph constructed in Stage 1. Finally we will compare all three configurations on a common set of queries to evaluate the impact of graph augmentation on answer quality and relevance.
