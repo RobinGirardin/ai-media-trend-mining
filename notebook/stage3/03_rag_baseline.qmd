@@ -208,6 +208,58 @@ else:
 
 ```{python}
 #| label: chromadb-indexing
+#| eval: false
+#| code-summary: "Store embeddings in ChromaDB"
+
+# Load from disk if not in memory
+DOCS_PATH       = STAGE3_DIR / "chunks_minilm.pkl"
+EMBEDDINGS_PATH = STAGE3_DIR / "embeddings_minilm.npy"
+
+if "documents" not in dir():
+    with open(DOCS_PATH, "rb") as f:
+        documents = pickle.load(f)
+    embeddings = np.load(EMBEDDINGS_PATH)
+    print(f"Loaded {len(documents):,} documents and {len(embeddings):,} embeddings")
+
+CHROMADB_PATH = STAGE3_DIR / "chromadb"
+CHROMADB_PATH.mkdir(parents=True, exist_ok=True)
+
+chroma_client = chromadb.PersistentClient(path=str(CHROMADB_PATH))
+
+collection = chroma_client.get_or_create_collection(
+    name="rag_baseline",
+    metadata={"hnsw:space": "cosine"},
+)
+
+if collection.count() == 0:
+    print("Filling ChromaDB...")
+    BATCH_SIZE = 512
+    for i in tqdm(range(0, len(documents), BATCH_SIZE)):
+        batch_docs = documents[i : i + BATCH_SIZE]
+        batch_embs = embeddings[i : i + BATCH_SIZE]
+        collection.add(
+            documents=[doc.page_content for doc in batch_docs],
+            embeddings=batch_embs.tolist(),
+            ids=[str(i + j) for j in range(len(batch_docs))],
+            metadatas=[doc.metadata for doc in batch_docs],
+        )
+    print(f"ChromaDB filled: {collection.count():,} documents")
+else:
+    print(f"ChromaDB already exists: {collection.count():,} documents")
+```
+
+```{python}
+#| label: chromadb-status
+#| eval: true
+#| code-summary: "Show ChromaDB collection status"
+
+CHROMADB_PATH = STAGE3_DIR / "chromadb"
+chroma_client = chromadb.PersistentClient(path=str(CHROMADB_PATH))
+collection = chroma_client.get_or_create_collection(
+    name="rag_baseline",
+    metadata={"hnsw:space": "cosine"},
+)
+print(f"ChromaDB collection 'rag_baseline': {collection.count():,} documents")
 ```
 
 ## RAG Pipeline
