@@ -1,0 +1,27 @@
+/.venv/
+/.quarto/
+/_freeze/
+
+# Python bytecode and cache
+__pycache__/
+_cache/
+
+# Quarto rendered outputs
+*_files/
+search.json
+
+# Jupyter / Notebook cache
+**/.jupyter_cache/
+.ipynb_checkpoints/
+**/*.quarto_ipynb
+
+# Data
+sandbox/
+data/processed/
+**/.quarto/
+
+# Web assets (Quarto generated)
+*.js
+*.css
+*.woff
+# *.html
