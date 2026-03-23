@@ -4,12 +4,13 @@ execute:
   eval: false
 ---
 
-This chapter constructs the evaluation dataset used across all RAG configurations. We select representative passages from the AI Media Dataset, generate Q&A pairs using GPT-4o, categorise them by type, and manually review them for quality.
+This chapter constructs the evaluation dataset used across all RAG configurations in Chapters 3–5. We select 80 representative passages from the AI Media Dataset using tag-based stratified sampling, generate 240 Q&A pairs using GPT-4o, and categorise them into three types: factual, analytical, and comparative. The resulting dataset is used in Chapter 6 to evaluate and compare the three RAG configurations using RAGAS metrics.
 
 ## Setup
 
 ```{python}
 #| label: imports
+#| eval: true
 #| code-summary: "Show imports"
 
 import json
@@ -30,32 +31,228 @@ REPO_ROOT = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents
 STAGE1_DIR = REPO_ROOT / "data" / "processed"
 STAGE3_DIR = REPO_ROOT / "data" / "processed" / "stage3"
 STAGE3_DIR.mkdir(parents=True, exist_ok=True)
+```
 
-# OpenAI models - analog Cleantech tutorial
-LLM_MODEL   = "gpt-4o"        # Q&A generation
-JUDGE_MODEL = "gpt-4o-mini"   # cheaper, for RAGAS later
+## Data Loading
+
+We load three tables from Stage 1: the cleaned article metadata, the tag assignments, and the paragraph-level chunks. Tags are used for stratified passage selection; chunks provide the actual text for Q&A generation.
+
+```{python}
+#| label: data-loading
+#| code-summary: "Load Stage 1 data"
+
+# Articles with metadata
+media_df = pd.read_csv(STAGE1_DIR / "media_cleaned.csv",
+                       usecols=["media_id", "title", "url", "domain", "full_content"])
+print(f"Articles: {len(media_df):,}")
+
+# Tags per article
+tags_df = pd.read_csv(STAGE1_DIR / "media_has_tags_cleaned.csv")
+print(f"Tags: {len(tags_df):,}")
+print(f"Unique tags: {tags_df['tag'].nunique()}")
+
+# Chunks
+chunks_df = pd.read_csv(STAGE1_DIR / "media_has_chunk_cleaned.csv",
+                        usecols=["media_id", "chunked_content"])
+print(f"Chunks: {len(chunks_df):,}")
+```
+
+The tag distribution confirms that the corpus is dominated by `GenerativeAI`, `LargeLanguageModel`, and `Video`, with a long tail of more specialised topics. We use this distribution to guide our passage selection strategy.
+
+```{python}
+#| label: tag-distribution
+#| eval: true
+#| code-summary: "Show top 30 tags by frequency"
+
+tags_df = pd.read_csv(STAGE1_DIR / "media_has_tags_cleaned.csv")
+print(tags_df["tag"].value_counts().head(30))
 ```
 
 ## Passage Selection
 
+We select passages using tag-based stratified sampling. The goal is to ensure that the Q&A dataset covers the full breadth of AI topics in the corpus - not just the most frequent ones. We define 20 target tags spanning generative AI, ethics, regulation, robotics, multimodality, and more. For each tag, we sample up to 4 articles at random (with a fixed seed for reproducibility). Articles covered by multiple tags are included only once.
+
+For each selected article, we take its longest paragraph-level chunk as the representative passage, capped at 2000 characters to fit within our GPT-4o prompt budget.
+
 ```{python}
 #| label: passage-selection
+#| code-summary: "Select representative passages via tag-based sampling"
+
+# Define target tags covering diverse AI topics
+TARGET_TAGS = [
+    "GenerativeAI", "LargeLanguageModel", "Robotics",
+    "Fairness", "MilitaryAndDefense", "OpenAI", "DeepSeek",
+    "ComputerVision", "Finetuning", "Video",
+    "AutonomousDriving", "QuantumComputing", "Audio",
+    "HighPerformanceComputing", "AIAgent",
+    "ConversationalAI", "Reasoning", "Accountability",
+    "NaturalLanguageProcessing", "DeepLearning"
+]
+
+ARTICLES_PER_TAG = 4
+SEED = 42
+
+selected_media_ids = set()
+
+for tag in TARGET_TAGS:
+    tag_articles = tags_df[tags_df["tag"] == tag]["media_id"].unique()
+    n = min(ARTICLES_PER_TAG, len(tag_articles))
+    sampled = pd.Series(tag_articles).sample(n=n, random_state=SEED)
+    selected_media_ids.update(sampled.tolist())
+
+print(f"Selected articles: {len(selected_media_ids)}")
+
+# Get one representative chunk per article (longest chunk, most content)
+chunks_df["length"] = chunks_df["chunked_content"].str.len()
+selected_chunks = (
+    chunks_df[chunks_df["media_id"].isin(selected_media_ids)]
+    .sort_values("length", ascending=False)
+    .groupby("media_id")
+    .first()
+    .reset_index()
+    .merge(media_df[["media_id", "title", "url", "domain"]], on="media_id")
+)
+
+# Cap passages at 2000 characters to fit GPT-4o prompt
+selected_chunks["chunked_content"] = selected_chunks["chunked_content"].str[:2000]
+selected_chunks["length"] = selected_chunks["chunked_content"].str.len()
+
+print(f"Selected passages: {len(selected_chunks)}")
+print(f"\nLength distribution:")
+print(selected_chunks["length"].describe())
+```
+
+```{python}
+#| label: save-passages
+#| code-summary: "Save selected passages to disk"
+
+PASSAGES_PATH = STAGE3_DIR / "selected_passages.csv"
+selected_chunks.to_csv(PASSAGES_PATH, index=False)
+print(f"Saved {len(selected_chunks)} passages to {PASSAGES_PATH}")
 ```
 
 ## Q&A Generation
 
+We generate exactly 3 Q&A pairs per passage using GPT-4o, one per category:
+
+- **Factual** - questions about specific facts (who, what, when, where)
+- **Analytical** - questions requiring reasoning (why, how)
+- **Comparative** - questions requiring comparison (difference between, compared to)
+
+The prompt instructs the model to return a JSON array with no additional text. GPT-4o occasionally wraps its response in Markdown code blocks despite this instruction - we handle this with a simple stripping step before parsing.
+
+Generation is checkpointed every 10 passages (30 pairs) to prevent data loss in case of interruption. Already-completed passages are skipped on subsequent runs, avoiding duplicate API calls and unnecessary costs.
+
 ```{python}
 #| label: qa-generation
+#| code-summary: "Generate Q&A pairs from passages using GPT-4o"
+
+QA_PATH = STAGE3_DIR / "qa_dataset.csv"
+
+qa_prompt = ChatPromptTemplate.from_template("""
+You are an expert in AI trends and media analysis.
+Based on the following passage from an AI news article, generate exactly 3 question-answer pairs.
+
+Requirements:
+- Include at least one factual question (who, what, when, where)
+- Include at least one analytical question (why, how)
+- Include at least one comparative question (difference between, compared to)
+- Each answer must be grounded strictly in the passage
+- Format your response as JSON with this structure:
+[
+  {{"question": "...", "answer": "...", "type": "factual"}},
+  {{"question": "...", "answer": "...", "type": "analytical"}},
+  {{"question": "...", "answer": "...", "type": "comparative"}}
+]
+- Return only the JSON array, no other text.
+
+Article title: {title}
+Passage: {passage}
+""")
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+qa_chain = qa_prompt | llm | StrOutputParser()
+
+if QA_PATH.exists():
+    qa_df = pd.read_csv(QA_PATH)
+    already_done = set(qa_df["media_id"].unique())
+    print(f"Loaded {len(qa_df)} existing Q&A pairs ({len(already_done)} passages done)")
+else:
+    qa_df = pd.DataFrame()
+    already_done = set()
+
+results = []
+for _, row in tqdm(selected_chunks.iterrows(), total=len(selected_chunks)):
+    if row["media_id"] in already_done:
+        continue
+    try:
+        response = qa_chain.invoke({
+            "title": row["title"],
+            "passage": row["chunked_content"]
+        })
+        # Strip markdown code blocks if present
+        response_clean = response.strip()
+        if response_clean.startswith("```"):
+            response_clean = response_clean.split("```")[1]
+            if response_clean.startswith("json"):
+                response_clean = response_clean[4:]
+            response_clean = response_clean.strip()
+
+        pairs = json.loads(response_clean)
+        for pair in pairs:
+            pair["media_id"] = row["media_id"]
+            pair["title"]    = row["title"]
+            pair["url"]      = row["url"]
+            pair["domain"]   = row["domain"]
+            pair["passage"]  = row["chunked_content"]
+        results.extend(pairs)
+
+        # Checkpoint every 10 passages
+        if len(results) > 0 and len(results) % 30 == 0:
+            checkpoint_df = pd.concat([qa_df, pd.DataFrame(results)], ignore_index=True)
+            checkpoint_df.to_csv(QA_PATH, index=False)
+            print(f"  Checkpoint: {len(checkpoint_df)} pairs saved")
+
+    except Exception as e:
+        print(f"  Error for media_id {row['media_id']}: {e}")
+        continue
+
+# Final save
+qa_df = pd.concat([qa_df, pd.DataFrame(results)], ignore_index=True)
+qa_df.to_csv(QA_PATH, index=False)
+print(f"\nDone: {len(qa_df)} Q&A pairs from {qa_df['media_id'].nunique()} passages")
 ```
 
-## Categorisation & Review
+## Dataset Statistics & Inspection
+
+The generated dataset contains 240 Q&A pairs across 80 passages, with exactly 80 pairs per category. The even distribution across types ensures a balanced evaluation across factual recall, analytical reasoning, and comparative understanding.
 
 ```{python}
-#| label: categorisation
+#| label: qa-inspection
+#| eval: true
+#| code-summary: "Inspect generated Q&A pairs"
+
+qa_df = pd.read_csv(STAGE3_DIR / "qa_dataset.csv")
+
+print(f"Total pairs: {len(qa_df)}")
+print(f"Passages:    {qa_df['media_id'].nunique()}")
+print(f"\nType distribution:")
+print(qa_df["type"].value_counts())
 ```
 
-## Dataset Statistics
+Below we show one example per question type to verify quality. All three examples are grounded strictly in the source passage, with no hallucinated content.
 
 ```{python}
-#| label: statistics
+#| label: qa-examples
+#| eval: true
+#| code-summary: "Show one example per question type"
+
+for type_ in ["factual", "analytical", "comparative"]:
+    example = qa_df[qa_df["type"] == type_].iloc[2]
+    print(f"\n=== {type_.upper()} ===")
+    print(f"Q:      {example['question']}")
+    print(f"A:      {example['answer']}")
+    print(f"Domain: {example['domain']}")
 ```
+
+The Q&A dataset is saved to `data/processed/stage3/qa_dataset.csv` and serves as the evaluation input for all three RAG configurations compared in Chapter 6.
