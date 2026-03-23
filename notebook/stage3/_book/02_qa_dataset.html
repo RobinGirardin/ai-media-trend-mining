@@ -4841,6 +4841,7 @@ vertical-align: -.125em;
   <li><a href="#passage-selection" id="toc-passage-selection" class="nav-link" data-scroll-target="#passage-selection"><span class="header-section-number">1.3</span> Passage Selection</a></li>
   <li><a href="#qa-generation" id="toc-qa-generation" class="nav-link" data-scroll-target="#qa-generation"><span class="header-section-number">1.4</span> Q&amp;A Generation</a></li>
   <li><a href="#dataset-statistics-inspection" id="toc-dataset-statistics-inspection" class="nav-link" data-scroll-target="#dataset-statistics-inspection"><span class="header-section-number">1.5</span> Dataset Statistics &amp; Inspection</a></li>
+  <li><a href="#manual-ai-assisted-review" id="toc-manual-ai-assisted-review" class="nav-link" data-scroll-target="#manual-ai-assisted-review"><span class="header-section-number">1.6</span> Manual &amp; AI-Assisted Review</a></li>
   </ul>
 </nav>
     </div>
@@ -5163,6 +5164,64 @@ Domain: news.mit</code></pre>
 </div>
 </div>
 <p>The Q&amp;A dataset is saved to <code>data/processed/stage3/qa_dataset.csv</code> and serves as the evaluation input for all three RAG configurations compared in Chapter 6.</p>
+</section>
+<section id="manual-ai-assisted-review" class="level2" data-number="1.6">
+<h2 data-number="1.6" class="anchored" data-anchor-id="manual-ai-assisted-review"><span class="header-section-number">1.6</span> Manual &amp; AI-Assisted Review</h2>
+<p>We reviewed all 240 generated Q&amp;A pairs in two passes before using the dataset for evaluation:</p>
+<ol type="1">
+<li><strong>Human review (Daniel Huber):</strong> All 240 pairs were manually inspected in a spreadsheet, flagging problematic entries based on content and grounding.</li>
+<li><strong>AI-assisted review (Gemini + Claude):</strong> Each flagged and unflagged pair was independently verified by two AI systems to cross-check the human findings and identify additional issues.</li>
+</ol>
+<p>The following error types were identified:</p>
+<ul>
+<li><strong>Hallucination</strong>: The answer introduces facts not present in the source passage (e.g.&nbsp;dataset names, product names, definitions).</li>
+<li><strong>External knowledge</strong>: The answer draws on general world knowledge rather than the provided passage.</li>
+<li><strong>Inference error</strong>: The answer presents a speculative interpretation as established fact.</li>
+<li><strong>Pseudo-comparative</strong>: A comparative question is generated even though the passage does not actually compare two things; the answer typically just lists features or enumerates facts.</li>
+<li><strong>Wrong label</strong>: The question is misclassified (e.g.&nbsp;labelled <code>comparative</code> when it is purely analytical).</li>
+<li><strong>Redundancy</strong>: Duplicate passage content across two different <code>media_id</code> entries, producing near-identical Q&amp;A pairs.</li>
+<li><strong>Format error</strong>: The passage field contains incorrect content, or the question field contains a double question.</li>
+</ul>
+<p>In total, <strong>25 pairs</strong> were removed, leaving <strong>215 Q&amp;A pairs</strong> for evaluation. The deletion was concentrated in the <code>comparative</code> category (18 of 25 removals), reflecting a systematic tendency of GPT-4o to generate pseudo-comparative questions where the passage does not support a genuine comparison. The final distribution is 77 factual, 76 analytical, and 62 comparative pairs - slightly uneven but still representative across all three categories.</p>
+<div id="qa-review" class="cell" data-execution_count="9">
+<details class="code-fold">
+<summary>Remove flagged Q&amp;A pairs after manual and AI-assisted review</summary>
+<div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>qa_df <span class="op">=</span> pd.read_csv(STAGE3_DIR <span class="op">/</span> <span class="st">"qa_dataset.csv"</span>)</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Before review: </span><span class="sc">{</span><span class="bu">len</span>(qa_df)<span class="sc">}</span><span class="ss"> pairs"</span>)</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Rows to remove (1-indexed CSV rows, header = row 1)</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>rows_to_remove <span class="op">=</span> [<span class="dv">3</span>,<span class="dv">4</span>,<span class="dv">16</span>,<span class="dv">19</span>,<span class="dv">28</span>,<span class="dv">34</span>,<span class="dv">40</span>,<span class="dv">49</span>,<span class="dv">112</span>,<span class="dv">115</span>,<span class="dv">121</span>,</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>                  <span class="dv">139</span>,<span class="dv">148</span>,<span class="dv">150</span>,<span class="dv">154</span>,<span class="dv">172</span>,<span class="dv">173</span>,<span class="dv">179</span>,<span class="dv">180</span>,<span class="dv">181</span>,</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>                  <span class="dv">186</span>,<span class="dv">187</span>,<span class="dv">196</span>,<span class="dv">208</span>,<span class="dv">239</span>]</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Convert to 0-indexed</span></span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>indices_to_remove <span class="op">=</span> [r <span class="op">-</span> <span class="dv">2</span> <span class="cf">for</span> r <span class="kw">in</span> rows_to_remove]</span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>qa_df_reviewed <span class="op">=</span> qa_df.drop(index<span class="op">=</span>indices_to_remove).reset_index(drop<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"After review:  </span><span class="sc">{</span><span class="bu">len</span>(qa_df_reviewed)<span class="sc">}</span><span class="ss"> pairs"</span>)</span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"</span><span class="ch">\n</span><span class="ss">Final type distribution:"</span>)</span>
+<span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(qa_df_reviewed[<span class="st">"type"</span>].value_counts())</span>
+<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-17"><a href="#cb12-17" aria-hidden="true" tabindex="-1"></a><span class="co"># Save reviewed dataset</span></span>
+<span id="cb12-18"><a href="#cb12-18" aria-hidden="true" tabindex="-1"></a>REVIEWED_PATH <span class="op">=</span> STAGE3_DIR <span class="op">/</span> <span class="st">"qa_dataset_reviewed.csv"</span></span>
+<span id="cb12-19"><a href="#cb12-19" aria-hidden="true" tabindex="-1"></a>qa_df_reviewed.to_csv(REVIEWED_PATH, index<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb12-20"><a href="#cb12-20" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"</span><span class="ch">\n</span><span class="ss">Saved to </span><span class="sc">{</span>REVIEWED_PATH<span class="sc">}</span><span class="ss">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Before review: 240 pairs
+After review:  215 pairs
+
+Final type distribution:
+type
+factual        77
+analytical     76
+comparative    62
+Name: count, dtype: int64
+
+Saved to C:\Users\dhub1\Python_Projects\ai-media-trend-mining\data\processed\stage3\qa_dataset_reviewed.csv</code></pre>
+</div>
+</div>
+<p>The reviewed dataset of 215 Q&amp;A pairs forms the evaluation backbone for Chapters 4–6. It covers 20 distinct AI topics, spans articles from across the full 12-month corpus, and provides a balanced mix of question types to probe factual recall, analytical reasoning, and comparative understanding across all three RAG configurations.</p>
 
 
 </section>

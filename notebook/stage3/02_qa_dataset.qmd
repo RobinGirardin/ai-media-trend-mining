@@ -256,3 +256,52 @@ for type_ in ["factual", "analytical", "comparative"]:
 ```
 
 The Q&A dataset is saved to `data/processed/stage3/qa_dataset.csv` and serves as the evaluation input for all three RAG configurations compared in Chapter 6.
+
+
+## Manual & AI-Assisted Review
+
+We reviewed all 240 generated Q&A pairs in two passes before using the dataset for evaluation:
+
+1. **Human review (Daniel Huber):** All 240 pairs were manually inspected in a spreadsheet, flagging problematic entries based on content and grounding.
+2. **AI-assisted review (Gemini + Claude):** Each flagged and unflagged pair was independently verified by two AI systems to cross-check the human findings and identify additional issues.
+
+The following error types were identified:
+
+- **Hallucination**: The answer introduces facts not present in the source passage (e.g. dataset names, product names, definitions).
+- **External knowledge**: The answer draws on general world knowledge rather than the provided passage.
+- **Inference error**: The answer presents a speculative interpretation as established fact.
+- **Pseudo-comparative**: A comparative question is generated even though the passage does not actually compare two things; the answer typically just lists features or enumerates facts.
+- **Wrong label**: The question is misclassified (e.g. labelled `comparative` when it is purely analytical).
+- **Redundancy**: Duplicate passage content across two different `media_id` entries, producing near-identical Q&A pairs.
+- **Format error**: The passage field contains incorrect content, or the question field contains a double question.
+
+In total, **25 pairs** were removed, leaving **215 Q&A pairs** for evaluation. The deletion was concentrated in the `comparative` category (18 of 25 removals), reflecting a systematic tendency of GPT-4o to generate pseudo-comparative questions where the passage does not support a genuine comparison. The final distribution is 77 factual, 76 analytical, and 62 comparative pairs - slightly uneven but still representative across all three categories.
+
+```{python}
+#| label: qa-review
+#| code-summary: "Remove flagged Q&A pairs after manual and AI-assisted review"
+#| eval: true
+
+qa_df = pd.read_csv(STAGE3_DIR / "qa_dataset.csv")
+print(f"Before review: {len(qa_df)} pairs")
+
+# Rows to remove (1-indexed CSV rows, header = row 1)
+rows_to_remove = [3,4,16,19,28,34,40,49,112,115,121,
+                  139,148,150,154,172,173,179,180,181,
+                  186,187,196,208,239]
+
+# Convert to 0-indexed
+indices_to_remove = [r - 2 for r in rows_to_remove]
+qa_df_reviewed = qa_df.drop(index=indices_to_remove).reset_index(drop=True)
+
+print(f"After review:  {len(qa_df_reviewed)} pairs")
+print(f"\nFinal type distribution:")
+print(qa_df_reviewed["type"].value_counts())
+
+# Save reviewed dataset
+REVIEWED_PATH = STAGE3_DIR / "qa_dataset_reviewed.csv"
+qa_df_reviewed.to_csv(REVIEWED_PATH, index=False)
+print(f"\nSaved to {REVIEWED_PATH}")
+```
+
+The reviewed dataset of 215 Q&A pairs forms the evaluation backbone for Chapters 4–6. It covers 20 distinct AI topics, spans articles from across the full 12-month corpus, and provides a balanced mix of question types to probe factual recall, analytical reasoning, and comparative understanding across all three RAG configurations.
