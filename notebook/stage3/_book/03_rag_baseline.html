@@ -4941,8 +4941,9 @@ vertical-align: -.125em;
 </section>
 <section id="chunking" class="level2" data-number="2.3">
 <h2 data-number="2.3" class="anchored" data-anchor-id="chunking"><span class="header-section-number">2.3</span> Chunking</h2>
-<p>The Stage 1 chunks are paragraph-level segments derived from the original article structure - each element in the raw <code>content</code> list corresponds to one chunk. This is a better segmentation than re-splitting from <code>full_content</code>, which has no paragraph boundaries.</p>
-<p>However, a small number of chunks exceed the 1,024-character limit suitable for embedding and retrieval. We use <code>RecursiveCharacterTextSplitter</code> to split oversized chunks while preserving a 128-character overlap between adjacent sub-chunks, ensuring no context is lost at boundaries. Each chunk is wrapped in a LangChain <code>Document</code> object with full metadata attached.</p>
+<p>The Stage 1 chunks are paragraph-level segments derived directly from the original article structure. In the raw dataset, each article’s <code>content</code> field is stored as a Python list of strings - one element per scraper-defined segment, typically one to three sentences. Stage 1 created <code>media_has_chunk</code> by simply exploding this list with <code>.explode()</code>, preserving the original segmentation without any further splitting algorithm.</p>
+<p>This is a better starting point than re-chunking from <code>full_content</code>, which concatenates all segments into a single flat string with no boundary information remaining.</p>
+<p>However, a small number of scraper segments are unusually long - exceeding the 1,024-character limit suitable for dense embedding and retrieval. For these outliers only, we apply <code>RecursiveCharacterTextSplitter</code> with a 128-character overlap between adjacent sub-chunks. This ensures no context is lost at split boundaries, while the original structure is fully preserved for the vast majority of chunks.</p>
 <div id="chunking" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Split oversized chunks</summary>
@@ -5013,34 +5014,38 @@ vertical-align: -.125em;
 <span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>prev <span class="op">=</span> documents[idx <span class="op">-</span> <span class="dv">1</span>]</span>
 <span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"</span><span class="ch">\n</span><span class="st">=== Sub-chunk 0 ==="</span>)</span>
-<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Titel:  </span><span class="sc">{</span>prev<span class="sc">.</span>metadata[<span class="st">'title'</span>]<span class="sc">}</span><span class="ss">"</span>)</span>
-<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Länge:  </span><span class="sc">{</span><span class="bu">len</span>(prev.page_content)<span class="sc">}</span><span class="ss"> Zeichen"</span>)</span>
-<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(prev.page_content[:<span class="dv">300</span>])</span>
-<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"</span><span class="ch">\n</span><span class="st">=== Sub-chunk 1 (overlap sichtbar) ==="</span>)</span>
-<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Länge:  </span><span class="sc">{</span><span class="bu">len</span>(example.page_content)<span class="sc">}</span><span class="ss"> Zeichen"</span>)</span>
-<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(example.page_content[:<span class="dv">300</span>])</span>
-<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"</span><span class="ch">\n</span><span class="st">→ Overlap:"</span>)</span>
-<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Ende von Sub-chunk 0: ...</span><span class="sc">{</span>prev<span class="sc">.</span>page_content[<span class="op">-</span><span class="dv">128</span>:]<span class="sc">}</span><span class="ss">"</span>)</span>
-<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Anfang von Sub-chunk 1: </span><span class="sc">{</span>example<span class="sc">.</span>page_content[:<span class="dv">128</span>]<span class="sc">}</span><span class="ss">..."</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Title:  </span><span class="sc">{</span>prev<span class="sc">.</span>metadata[<span class="st">'title'</span>]<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Length: </span><span class="sc">{</span><span class="bu">len</span>(prev.page_content)<span class="sc">}</span><span class="ss"> characters"</span>)</span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Start:  </span><span class="sc">{</span>prev<span class="sc">.</span>page_content[:<span class="dv">200</span>]<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"..."</span>)</span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"End:    ...</span><span class="sc">{</span>prev<span class="sc">.</span>page_content[<span class="op">-</span><span class="dv">200</span>:]<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"</span><span class="ch">\n</span><span class="st">=== Sub-chunk 1 (overlap visible) ==="</span>)</span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Length: </span><span class="sc">{</span><span class="bu">len</span>(example.page_content)<span class="sc">}</span><span class="ss"> characters"</span>)</span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Start:  </span><span class="sc">{</span>example<span class="sc">.</span>page_content[:<span class="dv">200</span>]<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"</span><span class="ch">\n</span><span class="st">→ Overlap (128 characters):"</span>)</span>
+<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"End of sub-chunk 0:   ...</span><span class="sc">{</span>prev<span class="sc">.</span>page_content[<span class="op">-</span><span class="dv">128</span>:]<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Start of sub-chunk 1: </span><span class="sc">{</span>example<span class="sc">.</span>page_content[:<span class="dv">128</span>]<span class="sc">}</span><span class="ss">..."</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>Loaded 459,927 documents
 Sub-chunks created: 23,862
 
 === Sub-chunk 0 ===
-Titel:  MTV VMAs 2024: Live shopping is coming to the red carpet
-Länge:  1015 Zeichen
-In this article', "When viewers tune in to the 2024 MTV VMAs on Wednesday night, they 'll be able to shop the outfits and designer looks they're seeing in real time, as legacy media companies look for new ways to monetize content.", "As part of a new partnership between Paramount Global — the parent
+Title:  MTV VMAs 2024: Live shopping is coming to the red carpet
+Length: 1015 characters
+Start:  In this article', "When viewers tune in to the 2024 MTV VMAs on Wednesday night, they 'll be able to shop the outfits and designer looks they're seeing in real time, as legacy media companies look for
+...
+End:    ...ould boost both retailers taking a hit as consumers pull back discretionary spending, and legacy media companies that have tried to maintain profits in a challenging landscape. Each time a person buys
 
-=== Sub-chunk 1 (overlap sichtbar) ===
-Länge:  1016 Zeichen
-spending, and legacy media companies that have tried to maintain profits in a challenging landscape. Each time a person buys something through the new feature, or in some cases even when they just click on an item, some revenue will go back to Paramount, according to Shopsense.', "`` Everyone's got 
+=== Sub-chunk 1 (overlap visible) ===
+Length: 1016 characters
+Start:  spending, and legacy media companies that have tried to maintain profits in a challenging landscape. Each time a person buys something through the new feature, or in some cases even when they just cli
 
-→ Overlap:
-Ende von Sub-chunk 0: ...ary spending, and legacy media companies that have tried to maintain profits in a challenging landscape. Each time a person buys
-Anfang von Sub-chunk 1: spending, and legacy media companies that have tried to maintain profits in a challenging landscape. Each time a person buys som...</code></pre>
+→ Overlap (128 characters):
+End of sub-chunk 0:   ...ary spending, and legacy media companies that have tried to maintain profits in a challenging landscape. Each time a person buys
+Start of sub-chunk 1: spending, and legacy media companies that have tried to maintain profits in a challenging landscape. Each time a person buys som...</code></pre>
 </div>
 </div>
 </section>
@@ -5243,7 +5248,7 @@ Anfang von Sub-chunk 1: spending, and legacy media companies that have tried to 
 <div class="cell-output cell-output-stdout">
 <pre><code>Question: What are the main trends in generative AI in 2025?
 
-Answer: The main trends in generative AI in 2025 include its significant role in martech, where it is expected to make marketers' jobs easier, faster, and more efficient. Generative AI is one of the most significant technology industry trends to watch in 2025. By this time, the industry may be moving past the peak of inflated expectations and entering a phase of more realistic understanding of the technology's limitations, known as the 'trough of disillusionment.' This period is crucial for developing more practical and sustainable uses of generative AI.
+Answer: The main trends in generative AI in 2025 include its significant role in martech, where it is expected to make marketers' jobs easier, faster, and more efficient. Generative AI is one of the most significant technology industry trends to watch in 2025. By this time, the industry may be moving past the peak of inflated expectations and entering the 'trough of disillusionment,' where enthusiasm declines, and a more realistic understanding of the technology's limitations emerges. This phase is crucial for developing more practical and sustainable uses of generative AI.
 
 Sources:
   - CES Briefing: Ad industry peeks at the ‘ agentic’ era (digiday)
@@ -5267,7 +5272,7 @@ Sources:
 <span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"  - </span><span class="sc">{</span>doc<span class="sc">.</span>metadata[<span class="st">'title'</span>]<span class="sc">}</span><span class="ss"> (</span><span class="sc">{</span>doc<span class="sc">.</span>metadata[<span class="st">'domain'</span>]<span class="sc">}</span><span class="ss">)"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>Answer: The release of DeepSeek-R1 had a significant impact on the AI industry. It was considered a watershed moment that forced industry leaders to reconsider their fundamental approaches to AI development. The model's impressive performance and cost-effective training methods garnered international attention, marking it as an "open-source AI breakout." Additionally, DeepSeek-R1 demonstrated China's advancements in AI, especially in the context of U.S. technology export controls, and its success could influence future AI investment.
+<pre><code>Answer: The release of DeepSeek-R1 had a significant impact on the AI industry. It was considered a watershed moment that prompted industry leaders to rethink their fundamental approaches to AI development. The model's impressive performance and cost-effective training methods garnered international attention, marking it as an "open-source AI breakout." Additionally, DeepSeek-R1 highlighted China's advancements in AI, especially in the context of U.S. technology export controls, and its success could influence future AI investment trends.
 
 Sources:
   - DeepSeek-R1: The Open-Source AI That’ s Beating Google and OpenAI (ctvc)
@@ -5289,7 +5294,7 @@ Sources:
 <span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"  - </span><span class="sc">{</span>doc<span class="sc">.</span>metadata[<span class="st">'title'</span>]<span class="sc">}</span><span class="ss"> (</span><span class="sc">{</span>doc<span class="sc">.</span>metadata[<span class="st">'domain'</span>]<span class="sc">}</span><span class="ss">)"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>Answer: The main concerns around AI regulation and ethics in 2025 include the need for clear and comprehensive guidelines to ensure the responsible and ethical use of AI. There is a significant challenge due to the lack of established laws, leading to a fragmented regulatory landscape where companies must balance innovation, ethics, and security on their own. Ethical guidelines and regulations are crucial to prevent AI from compromising human agency and to ensure that AI systems are transparent, accountable, and aligned with human values. Additionally, there is an international effort to establish shared principles for AI safety, which governments are working to implement domestically. Companies are encouraged to be proactive and informed about emerging AI risks to effectively navigate this evolving regulatory environment.
+<pre><code>Answer: The main concerns around AI regulation and ethics in 2025 include the need for clear and comprehensive guidelines to ensure the responsible and ethical use of AI technologies. There is a significant emphasis on establishing regulatory frameworks that ensure AI systems are transparent, accountable, and aligned with human values. The lack of clear AI laws presents a challenge, as companies must navigate a fragmented regulatory landscape, balancing innovation, ethics, and security. Additionally, there is a focus on international cooperation to develop shared principles and turn them into practice, addressing AI safety at both domestic and international levels. Companies are encouraged to be proactive and forward-thinking to mitigate risks such as AI bias and avoid legal issues.
 
 Sources:
   - Software and Platforms Risk Management (accenture)
