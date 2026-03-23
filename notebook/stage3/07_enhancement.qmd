@@ -7,25 +7,3 @@ execute:
 This chapter applies HyDE (Hypothetical Document Embeddings) and/or Multi-Query retrieval to the best-performing configuration and evaluates the impact on RAGAS metrics.
 
 ## Setup
-
-```{python}
-#| label: imports
-```
-
-## Multi-Query Retrieval
-
-```{python}
-#| label: multi-query
-```
-
-## HyDE Retrieval
-
-```{python}
-#| label: hyde
-```
-
-## Comparison with Best Config
-
-```{python}
-#| label: comparison
-```

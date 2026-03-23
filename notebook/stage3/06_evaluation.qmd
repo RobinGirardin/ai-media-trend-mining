@@ -7,37 +7,3 @@ execute:
 This chapter evaluates all three RAG configurations (A, B, C) using the RAGAS framework and compares their performance across faithfulness, answer relevancy, context relevancy, and answer correctness.
 
 ## Setup
-
-```{python}
-#| label: imports
-```
-
-## RAGAS Metrics
-
-```{python}
-#| label: ragas-metrics
-```
-
-## Results: Config A (Baseline)
-
-```{python}
-#| label: results-a
-```
-
-## Results: Config B (graph.json)
-
-```{python}
-#| label: results-b
-```
-
-## Results: Config C (Stage 1 Graph)
-
-```{python}
-#| label: results-c
-```
-
-## Comparison & Discussion
-
-```{python}
-#| label: comparison
-```

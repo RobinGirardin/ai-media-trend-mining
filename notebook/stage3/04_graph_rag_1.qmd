@@ -7,37 +7,3 @@ execute:
 This chapter extends the baseline RAG with entity-anchored retrieval using the provided knowledge graph (`graph.json`, 1,942 nodes, 21,014 edges).
 
 ## Setup
-
-```{python}
-#| label: imports
-```
-
-## Loading the Knowledge Graph
-
-```{python}
-#| label: load-graph
-```
-
-## Entity Extraction from Queries
-
-```{python}
-#| label: entity-extraction
-```
-
-## Entity-Anchored Retrieval
-
-```{python}
-#| label: graph-retrieval
-```
-
-## RAG Pipeline with Graph Context
-
-```{python}
-#| label: rag-pipeline
-```
-
-## Example Queries
-
-```{python}
-#| label: example-queries
-```
