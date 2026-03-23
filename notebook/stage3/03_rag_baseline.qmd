@@ -82,9 +82,11 @@ chunks_df.head(3)
 
 ## Chunking
 
-The Stage 1 chunks are paragraph-level segments derived from the original article structure - each element in the raw `content` list corresponds to one chunk. This is a better segmentation than re-splitting from `full_content`, which has no paragraph boundaries.
+The Stage 1 chunks are paragraph-level segments derived directly from the original article structure. In the raw dataset, each article's `content` field is stored as a Python list of strings — one element per scraper-defined segment, typically one to three sentences. Stage 1 created `media_has_chunk` by simply exploding this list with `.explode()`, preserving the original segmentation without any further splitting algorithm.
 
-However, a small number of chunks exceed the 1,024-character limit suitable for embedding and retrieval. We use `RecursiveCharacterTextSplitter` to split oversized chunks while preserving a 128-character overlap between adjacent sub-chunks, ensuring no context is lost at boundaries. Each chunk is wrapped in a LangChain `Document` object with full metadata attached.
+This is a better starting point than re-chunking from `full_content`, which concatenates all segments into a single flat string with no boundary information remaining.
+
+However, a small number of scraper segments are unusually long — exceeding the 1,024-character limit suitable for dense embedding and retrieval. For these outliers only, we apply `RecursiveCharacterTextSplitter` with a 128-character overlap between adjacent sub-chunks. This ensures no context is lost at split boundaries, while the original structure is fully preserved for the vast majority of chunks.
 
 ```{python}
 #| label: chunking
