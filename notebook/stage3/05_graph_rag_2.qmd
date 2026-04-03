@@ -4,6 +4,586 @@ execute:
   eval: false
 ---
 
-This chapter extends the baseline RAG with entity-anchored retrieval using our own knowledge graph extracted in Stage 1 (33,182 nodes, 111,115 edges).
+This chapter extends the baseline RAG with entity-anchored retrieval using our custom knowledge graph (33,182 nodes, 111,115 edges).
 
-## Setup
+We reuse the case-insensitive matching approach from the previous configuration (B).
+While not optimal, it performs well in development environments and requires no training.
+Unlike Config B, this graph lacks attributes suitable for node descriptions, making semantic search less straightforward.
+
+```{python}
+#| label: imports
+#| echo: false
+#| eval: true
+import networkx as nx
+import pandas as pd
+from pathlib import Path
+import re
+import pprint
+from spacy.lang.en.stop_words import STOP_WORDS
+import chromadb
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_chroma import Chroma
+from langchain_core.documents import Document
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnableParallel, RunnablePassthrough, RunnableLambda
+
+REPO_DIR = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
+DATA_DIR = Path(REPO_DIR, "data", "processed")
+STAGE3_DATA_DIR = Path(DATA_DIR, "stage3")
+```
+
+## Knowledge Graph Overview
+
+### Building
+
+Following the previous chapter, we'll build the knowledge graph using the dedicated CSV files.
+
+```{python}
+#| label: build-kg-config-c
+#| eval: true
+def build_knowledge_graph(entities_path: str, relationships_path: str) -> nx.DiGraph:
+    """
+    Construct a Knowledge Graph from entities and relationships CSV files.
+
+    Args:
+        entities_path: Path to entities.csv.
+        relationships_path: Path to relationships.csv.
+
+    Returns:
+        A directed NetworkX graph with nodes and edges.
+    """
+    # Load data
+    entities = pd.read_csv(entities_path)
+    relationships = pd.read_csv(relationships_path)
+
+    # Build graph
+    G = nx.DiGraph()
+
+    # Add nodes with attributes
+    for _, row in entities.iterrows():
+        G.add_node(
+            row["node_id"],
+            name=row["entity_text"],
+            type=row["entity_type"],
+        )
+
+    # Add edges with attributes
+    for _, row in relationships.iterrows():
+        G.add_edge(
+            row["source"],
+            row["target"],
+            type=row["relationship_type"],
+            date=row["date"] if pd.notna(row["date"]) else None,
+            money_amount=row["money_amount"],
+            media_id=row["media_id"] if pd.notna(row["media_id"]) else None,
+        )
+
+    return G
+
+
+# Building Knowledge Graph
+entities_path = Path(DATA_DIR / "knowledge_graph" / "entities.csv")
+relationships_path = Path(DATA_DIR / "knowledge_graph" / "relationships.csv")
+
+G = build_knowledge_graph(entities_path, relationships_path)
+```
+
+### Exploration
+
+Below is a concise overview of the Knowledge Graph's main characteristics.
+This serves as fresh reminder of what the graph contains.
+
+---
+
+#### Graph Structure
+
+The knowledge graph consists of two core components: entities (nodes) and relationships (edges). Together, they represent a rich network of actors, concepts, and interactions derived from media articles.
+
+##### Entities (Nodes)
+
+The graph contains **1,341 entities**, each described by the following attributes:
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `node_id` | Unique entity identifier | `entity_3` |
+| `name` | Human-readable entity name | `Gemini Robotics` |
+| `type` | Semantic category of the entity | `company`, `person`, `technology` |
+
+: Node attribute schema {#tbl-node-attributes}
+
+The five most prevalent entity types are presented in @tbl-node-types.
+
+| Rank | Type | Approximate Count |
+|------|------|-------------------|
+| 1 | `company` | 250+ |
+| 2 | `person` | 180+ |
+| 3 | `technology` | 120+ |
+| 4 | `product` | 100+ |
+| 5 | `location` | 90+ |
+
+: Distribution of the five most frequent node types {#tbl-node-types}
+
+##### Relationships (Edges)
+
+The graph contains **585 directed relationships**, each carrying the following attributes:
+
+| Attribute | Description | Notes |
+|-----------|-------------|-------|
+| `source` / `target` | Connected `node_id` pair | Directional |
+| `type` | Semantic relationship category | e.g., `partnership`, `development` |
+| `date` | Temporal context of the relationship | Sparsely populated (~10%) |
+| `money_amount` | Associated financial value | Relevant to acquisitions |
+| `media_id` | Source article identifier | Provenance tracking |
+
+: Edge attribute schema {#tbl-edge-attributes}
+
+The five most frequent relationship types are shown in @tbl-edge-types.
+
+| Rank | Type | Approximate Count |
+|------|------|-------------------|
+| 1 | `partnership` | 80+ |
+| 2 | `development` | 60+ |
+| 3 | `collaboration` | 50+ |
+| 4 | `action` | 45+ |
+| 5 | `acquisition` | 30+ |
+
+: Distribution of the five most frequent edge types {#tbl-edge-types}
+
+---
+
+#### Key Characteristics
+
+##### Entity-Level Characteristics
+
+###### Most Prominent Entities
+
+Entity prominence is measured by mention frequency across source articles. The three most frequently mentioned entities are:
+
+- **Gemini Robotics** — 1,051 mentions
+- **Google** — 912 mentions
+- **Google DeepMind** — 796 mentions
+
+###### Dominant Thematic Domains
+
+The entity set clusters into three broad thematic domains:
+
+- **Artificial Intelligence and Technology**: Encompasses major technology companies (e.g., Google, Nvidia), AI products (e.g., large language models, AI systems), and research organisations (e.g., DeepMind).
+- **Geopolitics and Governance**: Includes nation-states (e.g., the United States, China) and international bodies (e.g., the European Union, the United Nations).
+- **Industry Sectors**: Covers entities operating in healthcare, finance, and manufacturing.
+
+#### Relationship-Level Characteristics
+
+##### Collaborative Relationships
+
+Approximately **60% of edges** represent cooperative or co-productive interactions, including partnerships, collaborations, and joint development efforts (e.g., Google ↔ DeepMind). This predominance of collaborative edges reflects the cooperative dynamics characteristic of the AI and technology ecosystem.
+
+##### Financial Relationships
+
+A subset of edges encodes high-value financial transactions. Notable examples include:
+
+- IBM acquisition of HashiCorp — \$5 billion
+- OpenAI acquisition of Windsurf — \$3 billion
+
+##### Temporal Trends
+
+Temporal metadata is sparsely populated, with dates present in approximately 10% of edges. Among timestamped relationships, activity is concentrated in the **2023–2024** period, consistent with the rapid growth phase of the AI industry during those years.
+
+## Retrieval Approach
+
+We reuse the case-insensitive matching approach from the previous chapter, but the retrieved information differs.
+While Config B relied on precise node metadata, this graph’s strength lies in its relationships.
+It captures details like partnerships, collaborations, and financial transactions (e.g., acquisition amounts).
+
+Thus, we focus on extracting relational data from the neighborhood of matched nodes.
+For queries with multiple matches, we also retrieve the shortest path between entities to provide deeper contextual insights.
+
+### Case-Insensitive Matching
+
+We create an index mapping entity names to their `node_id`s for query matching.
+
+```{python}
+#| label: mapping-index
+#| eval: true
+index = {attributes["name"]: node_id for node_id, attributes in list(G.nodes(data=True))}
+```
+
+```{python}
+#| label: retrieve-node-relationships
+#| eval: true
+
+def gather_node_relationships(
+    graph: nx.DiGraph,
+    node_ids: List[str],
+    max_neighbors: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Gather relationships and shortest paths for given node_ids.
+    Args:
+        graph: Knowledge Graph (networkx.DiGraph).
+        node_ids: List of node_ids to analyze.
+        max_neighbors: Maximum neighbors to process per node (None = no limit).
+    Returns:
+        Dictionary with:
+        - nodes: Information about input node_ids.
+        - neighborhood: Relationships for each node_id.
+        - shortest_paths: Paths between node_ids (if multiple provided).
+    """
+    # Validate inputs
+    for node_id in node_ids:
+        if node_id not in graph:
+            raise ValueError(f"Node {node_id} not found in graph.")
+    # Gather node information
+    nodes_info = {
+        node_id: {
+            "name": graph.nodes[node_id]["name"],
+            "type": graph.nodes[node_id]["type"],
+        }
+        for node_id in node_ids
+    }
+    # Gather neighborhood relationships
+    neighborhood = {}
+    for node_id in node_ids:
+        neighbors = list(graph.neighbors(node_id))
+        if max_neighbors is not None:
+            neighbors = neighbors[:max_neighbors]
+        neighborhood[node_id] = []
+        for neighbor in neighbors:
+            edge_data = graph.get_edge_data(node_id, neighbor)
+            relationship = {
+                "target_node_id": neighbor,
+                "target_name": graph.nodes[neighbor]["name"],
+                "type": edge_data.get("type"),
+                "money_amount": edge_data.get("money_amount"),
+            }
+            neighborhood[node_id].append(relationship)
+    # Gather shortest paths (if multiple node_ids)
+    shortest_paths = {}
+    if len(node_ids) > 1:
+        for i in range(len(node_ids)):
+            for j in range(i + 1, len(node_ids)):
+                source = node_ids[i]
+                target = node_ids[j]
+                try:
+                    path = nx.shortest_path(graph, source=source, target=target)
+                    path_edges = []
+                    for k in range(len(path) - 1):
+                        edge_data = graph.get_edge_data(path[k], path[k + 1])
+                        path_edges.append({
+                            "source": path[k],
+                            "target": path[k + 1],
+                            "type": edge_data.get("type"),
+                            "money_amount": edge_data.get("money_amount"),
+                        })
+                    shortest_paths[f"{source}->{target}"] = path_edges
+                except nx.NetworkXNoPath:
+                    shortest_paths[f"{source}->{target}"] = None
+    return {
+        "nodes": nodes_info,
+        "neighborhood": neighborhood,
+        "shortest_paths": shortest_paths,
+    }
+```
+
+We can gather quite a bit of information by using those relationships.
+Nevertheless, as a dictionnary format, it is still too raw for any model to comprehend fully.
+Thus, let's build a small function that would turn this result into human-readable version, ready to be included as context.
+
+```{python}
+#| eval: true
+node_ids = [index.get("Google"), index.get("Google DeepMind")]
+
+result = gather_node_relationships(
+  G,
+  node_ids,
+  max_neighbors=5
+)
+pprint.pp(result)
+```
+
+```{python}
+#| eval: true
+#| label: format-relationship-data
+def format_relationship_data(relationship_data: Dict[str, Any]) -> str:
+    """
+    Convert relationship data into a human-readable prompt string.
+    Args:
+        relationship_data: Output from `gather_node_relationships()`.
+    Returns:
+        Formatted string for LLM prompts.
+    """
+    # Section 1: Node Information
+    nodes_section = "### Node Information\n"
+    for node_id, node_info in relationship_data["nodes"].items():
+        nodes_section += (
+            f"- **{node_info['name']} ({node_id})**\n"
+            f"  - Type: {node_info['type']}\n"
+        )
+    # Section 2: Neighborhood Relationships
+    neighborhood_section = "### Neighborhood Relationships\n"
+    for node_id, relationships in relationship_data["neighborhood"].items():
+        node_name = relationship_data["nodes"][node_id]["name"]
+        neighborhood_section += f"#### {node_name} ({node_id})\n"
+        for rel in relationships:
+            money_amount = rel["money_amount"] if rel["money_amount"] is not None else "N/A"
+            neighborhood_section += (
+                f"- → {rel['type']} with {rel['target_name']} ({rel['target_node_id']}) "
+                f"(Amount: {money_amount})\n"
+            )
+    # Section 3: Shortest Paths
+    paths_section = "### Shortest Paths\n"
+    for path_key, edges in relationship_data["shortest_paths"].items():
+        if edges is None:
+            continue
+        source, target = path_key.split("->")
+        source_name = relationship_data["nodes"][source]["name"]
+        target_name = relationship_data["nodes"][target]["name"]
+        paths_section += f"#### {source_name} ({source}) → {target_name} ({target})\n"
+        for i, edge in enumerate(edges, 1):
+            money_amount = edge["money_amount"] if edge["money_amount"] is not None else "N/A"
+            paths_section += (
+                f"{i}. {source_name} ({source}) → {target_name} ({target})\n"
+                f"   - Relationship: {edge['type']} (Amount: {money_amount})\n"
+            )
+    return f"{nodes_section}\n{neighborhood_section}\n{paths_section}"
+```
+
+This is much more readable.
+As always, we will add a small presentation of the section at the top ensuring that the model understand and is able to use the provided information to its fullest.
+
+```{python}
+#| eval: true
+context = format_relationship_data(result)
+print(context)
+```
+
+## Retrieval Pipeline
+
+This section combine the baseline RAG pipeline with the new KG retrieval functions.
+
+```{python}
+#| label: retrieval-pipeline-config-c
+#| eval: true
+def get_node_matches(query: str, index=index) -> List[str]:
+  """Extract relevant entities from the query and find node matches
+  using an inverted index."""
+  tokens = [
+    token
+    for token in re.sub(r"[\.,:;\|\?!]+", "", query).split()
+    if token not in STOP_WORDS
+  ]
+  node_ids = []
+  for token in tokens:
+    for node_name in index.keys():
+      match = re.match(rf"^{token}$", node_name, flags=re.IGNORECASE)
+      if match is not None:
+        node_ids.append(index[node_name])
+
+  return node_ids
+
+RELATIONSHIPS_METADATA = """
+The following context is extracted from a Knowledge Graph and describes entities (e.g., companies, people, technologies) and their relationships. Each section is structured as follows:
+1. **Node Information**: Lists entities with their `name`, `node_id`, and `type`.
+2. **Neighborhood Relationships**: Shows outgoing connections from each node (e.g., `A → B` means "A is connected to B"), including the `type` (e.g., partnership) and `money_amount` (e.g., $3B; "N/A" if unknown).
+3. **Shortest Paths**: Displays paths between nodes (if multiple are provided), with relationship details for each edge.
+Interpret `→` as directional (e.g., `A → B` ≠ `B → A`). Use this to answer questions about connections, financial ties, or entity roles.
+"""
+
+def retrieve_kg_context(
+  query: str,
+  graph,
+  index=index,
+  rel_metadata: str = RELATIONSHIPS_METADATA):
+  """Combine node matching, neighbors selection.
+  Output a context string with the relevant extracted information."""
+  node_matches: List[str] = get_node_matches(query, index)
+  result = gather_node_relationships(graph, node_matches, max_neighbors=5)
+  context = format_relationship_data(result)
+
+  return RELATIONSHIPS_METADATA + context
+
+def kg_retrieval_step(x: dict) -> dict:
+    """Runs alongside the Chroma retriever. Receives the raw query string."""
+    query = x["question"]
+    return {
+        "question":   query,
+        "doc_context": x["doc_context"],   # already retrieved by Chroma branch
+        "kg_context":  retrieve_kg_context(query, config_b_graph),
+    }
+```
+
+Find below an example of the isolated retrieval.
+
+```{python}
+#| eval: true
+query = "What exactly is Google?"
+context = retrieve_kg_context(query, G, index=index)
+print(context)
+```
+
+Comparing Config B and C, we observe:
+
+- **Config B** excels at descriptive queries (e.g., "What is Google?").
+- **Config C** is better suited for relational questions (e.g., "How is Google connected to DeepMind?").
+
+However, Config C provides little conceptual information about entities, focusing instead on relationships and assuming prior knowledge.
+This limitation is particularly evident for specialized or less common entities.
+
+#### Complementary Strengths
+
+- **Config B**: Ideal for queries requiring detailed entity descriptions.
+- **Config C**: Better suited for relational questions.
+
+A hybrid pipeline could dynamically route queries based on their intent. 
+
+```{python}
+#| eval: true
+query = "What are the main trends in generative AI in 2025?"
+context = retrieve_kg_context(query, G, index=index)
+print(context)
+```
+
+```{python}
+#| label: retrieval-pipeline-helpers
+#| code-fold: true
+#| code-summary: "Helper of the baseline RAG pipeline"
+#| eval: true
+#| message: false
+#| warning: false
+
+DOCS_PATH = STAGE3_DATA_DIR / "chunks_minilm.pkl"
+
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+def deduplicate_by_url(docs, max_per_url: int = 1):
+    seen = {}
+    result = []
+    for doc in docs:
+        url = doc.metadata["url"]
+        seen[url] = seen.get(url, 0) + 1
+        if seen[url] <= max_per_url:
+            result.append(doc)
+    return result
+
+embedding_model = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_kwargs={"device": "cpu"},
+)
+
+# Chat Model
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+template = """You are an assistant for question-answering tasks about AI trends.
+Use the following retrieved context to answer the question.
+Base your answer strictly on the provided context. 
+If the context contains relevant information, use it even if it is partial.
+Keep the answer concise but informative.
+
+Question: {question}
+
+Context: {context}
+
+Answer:
+"""
+rag_prompt = ChatPromptTemplate.from_template(template)
+
+# Retriever from ChromaDB
+CHROMADB_PATH = STAGE3_DATA_DIR / "chromadb"
+chroma_client = chromadb.PersistentClient(path=str(CHROMADB_PATH))
+
+store = Chroma(
+    client=chroma_client,
+    collection_name="rag_baseline",
+    embedding_function=embedding_model,
+)
+retriever = store.as_retriever(
+    search_type="similarity",
+    search_kwargs={"k": 6},
+)
+```
+
+```{python}
+#| label: retrieval-pipeline
+#| eval: true
+rag_chain = (
+    RunnableParallel(
+        {
+            # Chroma branch — unchanged
+            "doc_context": retriever | deduplicate_by_url | format_docs,
+            "question":    RunnablePassthrough(),
+        }
+    )
+    | RunnableLambda(kg_retrieval_step)   # inject KG context
+    | rag_prompt
+    | llm
+    | StrOutputParser()
+)
+```
+
+## Pipeline In Action
+
+In order to be able to compare the response qualitatively to the baseline, I'll use the same query as the one used for baseline.
+
+**Query 1** is intentionally broad. The retrieved chunks are mostly from marketing-oriented articles, resulting in a surface-level answer. This reflects a genuine limitation of dense retrieval for high-level trend questions.
+
+```{python}
+#| label: example-query-1
+#| eval: false
+#| code-summary: "Example query 1 on the RAG baseline"
+
+result = rag_chain.invoke("What are the main trends in generative AI in 2025?")
+
+print("Question:", result["question"])
+print("\nAnswer:", result["answer"])
+print("\nSources:")
+for doc in result["context"]:
+    print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
+```
+
+**Query 2** targets a specific, well-documented event in the corpus - the DeepSeek-R1 release in January 2025. The retriever finds highly relevant chunks from multiple sources, and the LLM produces a precise, well-grounded answer.
+
+```{python}
+#| label: example-query-2
+#| eval: false
+#| code-summary: "Example query 2 on the RAG baseline"
+
+result = rag_chain.invoke(
+    "What was the impact of DeepSeek-R1 release on the AI industry?"
+)
+print("Answer:", result["answer"])
+print("\nSources:")
+for doc in result["context"]:
+    print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
+```
+
+**Query 3** tests a thematic question about AI regulation and ethics. The retriever successfully identifies relevant articles from diverse domains, and the LLM synthesizes a coherent answer from the retrieved context.
+
+```{python}
+#| label: example-query-3
+#| eval: false
+#| code-summary: "Example query 3 on the RAG baseline"
+result = rag_chain.invoke(
+    "What are the main concerns around AI regulation and ethics in 2025?"
+)
+print("Answer:", result["answer"])
+print("\nSources:")
+for doc in result["context"]:
+    print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
+```
+
+## Future Improvements
+
+Each node is linked to an article, a relationship that could be leveraged to extract additional context. This would allow the model to cite articles as sources in its metadata.
+
+The pipeline itself might benefit from a better node matching algorithm.
+The current case-insensitive matching lacks the semantic understanding that some queries would require.
+Moreover, it doesn't allow for much leverage with respect to the way of writting the entities, abbreviations and derivative products.
+As such, a more advanced model such as `spaCy` entity linker pipeline could be more appropriate. \newline
+Additionnaly, the overall pipeline relies on a simple manually tokenazation algorithm, which would benefit from a better algorithm such as `spaCy`, or other word-level tokenizer.
+
+Lastly, the selection process of the relevant elements to retrieve from could be further researched upon.
+Although we believe that we identified each knowledge graph strength, the current approach fairly simple and relies on the matched node and its neighbors.
+A better retrieval schema, leveraging other component, or the relationship better, could achieve better performance.
