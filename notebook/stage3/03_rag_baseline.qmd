@@ -416,3 +416,52 @@ for doc in result["context"]:
 **Config A of the RAG** demonstrates that dense vector retrieval alone provides a solid foundation for question answering over the AI Media Dataset. Specific, event-driven queries - such as the DeepSeek-R1 release - yield precise, well-grounded answers backed by diverse sources. Broad trend questions reveal a natural limitation: without structured knowledge, the retriever cannot distinguish between central and peripheral articles on a topic.
 
 The following chapters address this gap by integrating knowledge graphs into the retrieval process. **Config B** uses the provided graph.json, while **Config C** uses the knowledge graph constructed in Stage 1. Finally we will compare all three configurations on a common set of queries to evaluate the impact of graph augmentation on answer quality and relevance.
+
+```{python}
+
+REPO_ROOT = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
+STAGE3_DIR = REPO_ROOT / "data" / "processed" / "stage3"
+
+EVAL_DIR = STAGE3_DIR / "evaluation"
+ARTIFACTS_DIR = EVAL_DIR / "artifacts"
+CONFIG_A_DIR = ARTIFACTS_DIR / "config_a"
+CONFIG_B_DIR = ARTIFACTS_DIR / "config_b"
+CONFIG_C_DIR = ARTIFACTS_DIR / "config_c"
+
+for d in [EVAL_DIR, ARTIFACTS_DIR, CONFIG_A_DIR, CONFIG_B_DIR, CONFIG_C_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
+```
+
+```{python}
+#| label: Save reusable artifacts for Chapter 6
+#| eval: true
+#| code-summary: "config_a_manifest"
+
+
+REPO_ROOT = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
+STAGE3_DIR = REPO_ROOT / "data" / "processed" / "stage3"
+
+EVAL_DIR = STAGE3_DIR / "evaluation"
+ARTIFACTS_DIR = EVAL_DIR / "artifacts"
+CONFIG_A_DIR = ARTIFACTS_DIR / "config_a"
+
+for d in [EVAL_DIR, ARTIFACTS_DIR, CONFIG_A_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
+
+config_a_manifest = {
+    "config_name": "config_a_text_only",
+    "description": "Text-only RAG baseline",
+    "embedding_model_name": "sentence-transformers/all-MiniLM-L6-v2",
+    "chunks_path": str(STAGE3_DIR / "chunks_minilm.pkl"),
+    "embeddings_path": str(STAGE3_DIR / "embeddings_minilm.npy"),
+    "chromadb_path": str(STAGE3_DIR / "chromadb"),
+    "collection_name": "ai-media-minilm",
+    "top_k": 8
+}
+
+with open(CONFIG_A_DIR / "manifest.json", "w", encoding="utf-8") as f:
+    json.dump(config_a_manifest, f, ensure_ascii=False, indent=2)
+
+print("Saved Config A manifest:")
+print(json.dumps(config_a_manifest, indent=2))
+```
