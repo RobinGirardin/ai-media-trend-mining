@@ -1,9 +1,1022 @@
 ---
-title: "Evaluation & Comparison"
+title: "RAG Evaluation"
 execute:
   eval: false
 ---
 
-This chapter evaluates all three RAG configurations (A, B, C) using the RAGAS framework and compares their performance across faithfulness, answer relevancy, context relevancy, and answer correctness.
+This chapter evaluates the three RAG configurations built in Stage 3 on a shared benchmark derived from the Q&A dataset. The goal is to compare:
+
+- **Config A:** text-only RAG baseline
+- **Config B:** RAG + provided knowledge graph
+- **Config C:** RAG + Stage 1 knowledge graph
+
+The evaluation follows the project requirement to compare text-only and graph-augmented RAG systems using a common set of benchmark questions and grounded evidence. It also follows the lecture emphasis on relevance, faithfulness, and context grounding in RAG evaluation.
+
+
 
 ## Setup
+
+```{python}
+#| label: imports
+#| eval: true
+#| code-summary: "Show imports"
+
+import json
+import pickle
+import re
+import warnings
+from pathlib import Path
+from typing import List, Dict, Any
+
+import pandas as pd
+import numpy as np
+from dotenv import load_dotenv
+
+import chromadb
+import networkx as nx
+
+from langchain_openai import ChatOpenAI
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import (
+    RunnableLambda,
+    RunnableParallel,
+    RunnablePassthrough,
+)
+
+load_dotenv()
+warnings.filterwarnings("ignore")
+
+REPO_ROOT = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
+DATA_DIR = REPO_ROOT / "data" / "processed"
+STAGE3_DIR = DATA_DIR / "stage3"
+EVAL_DIR = STAGE3_DIR / "evaluation"
+ARTIFACTS_DIR = EVAL_DIR / "artifacts"
+FIG_DIR = EVAL_DIR / "figures"
+RAW_DIR = EVAL_DIR / "raw"
+
+for d in [EVAL_DIR, ARTIFACTS_DIR, FIG_DIR, RAW_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
+
+CONFIG_A_DIR = ARTIFACTS_DIR / "config_a"
+CONFIG_B_DIR = ARTIFACTS_DIR / "config_b"
+CONFIG_C_DIR = ARTIFACTS_DIR / "config_c"
+```
+
+## Load Saved Artifacts
+
+Chapters 3–5 each saved a small manifest and, for graph-based configurations, a serialized graph object.
+Instead of rerunning the whole pipeline we will be loading the files. Below you can find the files that we will be loading for an easier reproductibilty.
+
+Expected files:
+
+- `data/processed/stage3/evaluation/artifacts/config_a/manifest.json`
+- `data/processed/stage3/evaluation/artifacts/config_b/manifest.json`
+- `data/processed/stage3/evaluation/artifacts/config_b/config_b_graph.pkl`
+- `data/processed/stage3/evaluation/artifacts/config_c/manifest.json`
+- `data/processed/stage3/evaluation/artifacts/config_c/config_c_graph.pkl`
+
+```{python}
+#| label: load-manifests
+#| eval: true
+#| code-summary: "Load manifests and saved graph artifacts"
+
+with open(CONFIG_A_DIR / "manifest.json", "r", encoding="utf-8") as f:
+    config_a_manifest = json.load(f)
+
+with open(CONFIG_B_DIR / "manifest.json", "r", encoding="utf-8") as f:
+    config_b_manifest = json.load(f)
+
+with open(CONFIG_C_DIR / "manifest.json", "r", encoding="utf-8") as f:
+    config_c_manifest = json.load(f)
+
+with open(CONFIG_B_DIR / "config_b_graph.pkl", "rb") as f:
+    config_b_graph = pickle.load(f)
+
+with open(CONFIG_C_DIR / "config_c_graph.pkl", "rb") as f:
+    config_c_graph = pickle.load(f)
+
+print("Artifacts loaded successfully.")
+print("Config A:", config_a_manifest["config_name"])
+print("Config B:", config_b_manifest["config_name"])
+print("Config C:", config_c_manifest["config_name"])
+```
+
+## Load Evaluation Input
+
+We use the reviewed Q&A dataset.
+
+```{python}
+#| label: load-qa-dataset
+#| eval: true
+#| code-summary: "Load the QA benchmark source"
+
+QA_PATH = STAGE3_DIR / "qa_dataset_reviewed.csv"
+
+if not QA_PATH.exists():
+    raise FileNotFoundError(f"{QA_PATH} was not found.")
+
+qa_df = pd.read_csv(QA_PATH)
+qa_df.columns = qa_df.columns.str.strip()
+
+print(f"Using QA dataset: {QA_PATH.name}")
+print(f"Rows: {len(qa_df):,}")
+print("Columns:", qa_df.columns.tolist())
+
+display(qa_df.head(3))
+```
+
+## Build the Benchmark Table
+
+The **benchmark annotation sheet** is created from the Q&A pairs already generated in Chapter 2.
+
+To keep the benchmark balanced, we sample up to 10 questions per type. If the dataset does not contain a `type` column, we assign all questions to a fallback type `general`.
+
+```{python}
+#| label: benchmark-table
+#| eval: true
+#| code-summary: "Create benchmark_questions.csv from the QA dataset"
+
+BENCHMARK_PATH = EVAL_DIR / "benchmark_questions.csv"
+SEED = 42
+N_PER_TYPE = 10
+
+required_cols = ["question", "answer", "passage", "type"]
+for col in required_cols:
+    if col not in qa_df.columns:
+        raise KeyError(f"Required column '{col}' not found in the QA dataset.")
+
+benchmark_source = qa_df.copy()
+
+for col in ["media_id", "title", "url", "domain"]:
+    if col not in benchmark_source.columns:
+        benchmark_source[col] = None
+
+# rename first, before sampling
+benchmark_source = benchmark_source.rename(columns={
+    "type": "Question_Type",
+    "question": "Question",
+    "answer": "Reference_Answer",
+    "passage": "Relevant_Chunk",
+})
+
+# sample per question type without groupby.apply
+sampled_parts = []
+for qtype, group in benchmark_source.groupby("Question_Type", sort=True):
+    sampled = group.sample(n=min(N_PER_TYPE, len(group)), random_state=SEED).copy()
+    sampled_parts.append(sampled)
+
+benchmark_df = pd.concat(sampled_parts, ignore_index=True)
+
+benchmark_df.insert(0, "id", [f"Q{i+1:02d}" for i in range(len(benchmark_df))])
+
+benchmark_df = benchmark_df[[
+    "id",
+    "Question_Type",
+    "Question",
+    "Reference_Answer",
+    "Relevant_Chunk",
+    "media_id",
+    "title",
+    "url",
+    "domain",
+]]
+
+benchmark_df.to_csv(BENCHMARK_PATH, index=False)
+
+print(f"Saved benchmark table to: {BENCHMARK_PATH}")
+print(benchmark_df["Question_Type"].value_counts())
+display(benchmark_df.head(5))
+```
+
+## Shared Retrieval Components
+
+All three configurations reuse the same embedding model and Chroma vector store from the baseline setup.
+
+```{python}
+#| label: shared-components
+#| eval: true
+#| code-summary: "Load embedding model, LLM, and Chroma vector store"
+#| echo: false
+
+embedding_model = HuggingFaceEmbeddings(
+    model_name=config_a_manifest["embedding_model_name"],
+    model_kwargs={"device": "cpu"},
+)
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+chroma_client = chromadb.PersistentClient(path=config_a_manifest["chromadb_path"])
+store = Chroma(
+    client=chroma_client,
+    collection_name=config_a_manifest["collection_name"],
+    embedding_function=embedding_model,
+)
+
+retriever_a = store.as_retriever(
+    search_type="similarity",
+    search_kwargs={"k": config_a_manifest.get("top_k", 6)},
+)
+retriever_b = store.as_retriever(
+    search_type="similarity",
+    search_kwargs={"k": config_b_manifest.get("top_k", 6)},
+)
+retriever_c = store.as_retriever(
+    search_type="similarity",
+    search_kwargs={"k": config_c_manifest.get("top_k", 6)},
+)
+
+print("Embedding model and vector store loaded.")
+```
+
+```{python}
+#| label: retrieval-helpers
+#| eval: true
+#| code-summary: "Define shared helper functions for retrieval and formatting"
+
+def deduplicate_by_url(docs, max_per_url: int = 1):
+    seen = {}
+    result = []
+    for doc in docs:
+        url = doc.metadata.get("url", "")
+        seen[url] = seen.get(url, 0) + 1
+        if seen[url] <= max_per_url:
+            result.append(doc)
+    return result
+
+
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+
+def safe_metadata(doc, key: str, default=""):
+    try:
+        return doc.metadata.get(key, default)
+    except Exception:
+        return default
+
+
+def docs_to_sources(docs):
+    return [
+        {
+            "title": safe_metadata(doc, "title", ""),
+            "url": safe_metadata(doc, "url", ""),
+            "domain": safe_metadata(doc, "domain", ""),
+            "media_id": safe_metadata(doc, "media_id", ""),
+            "chunk_id": safe_metadata(doc, "chunk_id", ""),
+        }
+        for doc in docs
+    ]
+```
+
+## Rebuild Config A (Text-Only Baseline)
+
+Config A is the cleanest pipeline. It retrieves top-k chunks from ChromaDB, deduplicates by URL, and prompts the LLM with only the text context.
+
+```{python}
+#| label: config-a-pipeline
+#| eval: true
+#| code-summary: "Rebuild Config A pipeline"
+
+config_a_template = """You are an assistant for question-answering tasks about AI trends.
+Use the following retrieved context to answer the question.
+Base your answer strictly on the provided context.
+If the context contains relevant information, use it even if it is partial.
+Keep the answer concise but informative.
+
+Question: {question}
+
+Context: {context}
+
+Answer:
+"""
+
+config_a_prompt = ChatPromptTemplate.from_template(config_a_template)
+
+rag_chain_a = RunnableParallel(
+    {
+        "context": retriever_a | deduplicate_by_url,
+        "question": RunnablePassthrough(),
+    }
+).assign(
+    answer=(
+        RunnablePassthrough.assign(context=lambda x: format_docs(x["context"]))
+        | config_a_prompt
+        | llm
+        | StrOutputParser()
+    )
+)
+
+print("Config A ready.")
+```
+
+## Rebuild Config B (Provided Knowledge Graph)
+
+Config B enriches the retriever context with entity-centric information from the provided graph. The original notebook used exact token matching on graph node names, so we preserve that logic here for consistency.
+
+```{python}
+#| label: config-b-kg-helpers
+#| eval: true
+#| code-summary: "Helper functions for Config B KG retrieval"
+
+STOP_WORDS = {
+    "what", "which", "who", "when", "where", "why", "how", "is", "are",
+    "the", "a", "an", "of", "in", "on", "for", "to", "and", "or", "with",
+    "about", "main", "trends", "trend"
+}
+
+config_b_index = {
+    attributes["name"]: node_id
+    for node_id, attributes in list(config_b_graph.nodes(data=True))
+    if attributes.get("name")
+}
+
+
+def get_node_matches_b(query: str, index=config_b_index) -> List[str]:
+    tokens = [
+        token
+        for token in re.sub(r"[\.,:;\|\?!]+", "", query).split()
+        if token.lower() not in STOP_WORDS
+    ]
+    node_ids = []
+    for token in tokens:
+        for node_name in index.keys():
+            match = re.match(rf"^{re.escape(token)}$", str(node_name), flags=re.IGNORECASE)
+            if match is not None:
+                node_ids.append(index[node_name])
+    return list(dict.fromkeys(node_ids))
+
+
+def retrieved_ranked_neighbors_b(node_id: str, graph, k_rank: int = 5):
+    neighbors = []
+    for neigh in graph.neighbors(node_id):
+        strength = graph.edges[node_id, neigh].get("strength", 0)
+        node = graph.nodes[neigh]
+        metadata = {
+            "name": node.get("name", ""),
+            "long_description": node.get("long_description", ""),
+            "activity": node.get("activity", ""),
+            "popularity": node.get("popularity", ""),
+            "trend": node.get("trend", ""),
+        }
+        neighbors.append((neigh, strength, metadata))
+    return sorted(neighbors, key=lambda x: x[1], reverse=True)[:k_rank]
+
+
+ATTRIBUTE_METADATA = """
+The following context contains retrieved information from a knowledge graph for nodes matching the query.
+Each retrieved node has the following attributes:
+- name: node name
+- description: short description of the concept or organization
+- activity: relative activity level
+- popularity: normalized popularity score
+- trend: recent change in popularity
+"""
+
+
+def retrieve_kg_context_b(query: str, graph, index=config_b_index) -> str:
+    node_matches = get_node_matches_b(query, index=index)
+    if len(node_matches) == 0:
+        return ""
+
+    parts = [ATTRIBUTE_METADATA.strip()]
+    for node_id in node_matches:
+        node = graph.nodes[node_id]
+        parts.append(
+            f"""
+--- Node: {node_id} ---
+name: {node.get('name', '')}
+description: {node.get('long_description', '')}
+activity: {node.get('activity', '')}
+popularity: {node.get('popularity', '')}
+trend: {node.get('trend', '')}
+""".strip()
+        )
+        neighbors = retrieved_ranked_neighbors_b(node_id, graph)
+        for neigh_id, _, meta in neighbors:
+            parts.append(
+                f"""
+--- Node: {neigh_id} ---
+name: {meta.get('name', '')}
+description: {meta.get('long_description', '')}
+activity: {meta.get('activity', '')}
+popularity: {meta.get('popularity', '')}
+trend: {meta.get('trend', '')}
+""".strip()
+            )
+    return "\n\n".join(parts)
+
+
+def kg_retrieval_step_b(x: dict) -> dict:
+    query = x["question"]
+    return {
+        "question": query,
+        "doc_context": x["doc_context"],
+        "kg_context": retrieve_kg_context_b(query, config_b_graph),
+    }
+```
+
+```{python}
+#| label: config-b-pipeline
+#| eval: true
+#| code-summary: "Rebuild Config B pipeline"
+
+config_b_template = """You are an assistant for question-answering tasks about AI trends.
+Use both the retrieved document context and the knowledge graph context to answer the question.
+Base your answer strictly on the provided evidence.
+If the knowledge graph adds useful entity-level information, incorporate it.
+If either source is missing, rely on the other source without inventing facts.
+Keep the answer concise but informative.
+
+Question: {question}
+
+Document Context:
+{doc_context}
+
+Knowledge Graph Context:
+{kg_context}
+
+Answer:
+"""
+
+config_b_prompt = ChatPromptTemplate.from_template(config_b_template)
+
+rag_chain_b = (
+    RunnableParallel(
+        {
+            "doc_context": retriever_b | deduplicate_by_url | format_docs,
+            "question": RunnablePassthrough(),
+        }
+    )
+    | RunnableLambda(kg_retrieval_step_b)
+    | config_b_prompt
+    | llm
+    | StrOutputParser()
+)
+
+print("Config B ready.")
+```
+
+## Rebuild Config C (Stage 1 Knowledge Graph)
+
+Config C uses the graph constructed from Stage 1 entity and relationship extraction. Unlike Config B, this graph is more relational and less descriptive, so the KG context focuses on nodes, outgoing relationships, and shortest paths.
+
+```{python}
+#| label: config-c-kg-helpers-1
+#| eval: true
+#| code-summary: "Helper functions for Config C graph analysis"
+
+config_c_index = {
+    attributes["name"]: node_id
+    for node_id, attributes in list(config_c_graph.nodes(data=True))
+    if attributes.get("name")
+}
+
+
+def get_node_matches_c(query: str, index=config_c_index) -> List[str]:
+    tokens = [
+        token
+        for token in re.sub(r"[\.,:;\|\?!]+", "", query).split()
+        if token.lower() not in STOP_WORDS
+    ]
+    node_ids = []
+    for token in tokens:
+        for node_name in index.keys():
+            match = re.match(rf"^{re.escape(token)}$", str(node_name), flags=re.IGNORECASE)
+            if match is not None:
+                node_ids.append(index[node_name])
+    return list(dict.fromkeys(node_ids))
+
+
+def gather_node_relationships(
+    graph: nx.DiGraph,
+    node_ids: List[str],
+    max_neighbors: int | None = None,
+) -> Dict[str, Any]:
+    for node_id in node_ids:
+        if node_id not in graph:
+            raise ValueError(f"Node {node_id} not found in graph.")
+
+    nodes_info = {
+        node_id: {
+            "name": graph.nodes[node_id].get("name", ""),
+            "type": graph.nodes[node_id].get("type", ""),
+        }
+        for node_id in node_ids
+    }
+
+    neighborhood = {}
+    for node_id in node_ids:
+        neighbors = list(graph.neighbors(node_id))
+        if max_neighbors is not None:
+            neighbors = neighbors[:max_neighbors]
+
+        neighborhood[node_id] = []
+        for neighbor in neighbors:
+            edge_data = graph.get_edge_data(node_id, neighbor) or {}
+            neighborhood[node_id].append({
+                "source": node_id,
+                "source_name": graph.nodes[node_id].get("name", ""),
+                "target": neighbor,
+                "target_name": graph.nodes[neighbor].get("name", ""),
+                "type": edge_data.get("type", "unknown"),
+                "money_amount": edge_data.get("money_amount", "N/A"),
+            })
+
+    shortest_paths = {}
+    if len(node_ids) > 1:
+        for i, source in enumerate(node_ids):
+            for target in node_ids[i + 1:]:
+                try:
+                    path = nx.shortest_path(graph, source=source, target=target)
+                    path_edges = []
+                    for k in range(len(path) - 1):
+                        edge_data = graph.get_edge_data(path[k], path[k + 1]) or {}
+                        path_edges.append({
+                            "source": path[k],
+                            "source_name": graph.nodes[path[k]].get("name", ""),
+                            "target": path[k + 1],
+                            "target_name": graph.nodes[path[k + 1]].get("name", ""),
+                            "type": edge_data.get("type", "unknown"),
+                            "money_amount": edge_data.get("money_amount", "N/A"),
+                        })
+                    shortest_paths[f"{source}->{target}"] = path_edges
+                except nx.NetworkXNoPath:
+                    shortest_paths[f"{source}->{target}"] = []
+
+    return {
+        "nodes": nodes_info,
+        "neighborhood": neighborhood,
+        "shortest_paths": shortest_paths,
+    }
+
+
+def format_relationship_data(result: Dict[str, Any]) -> str:
+    parts = []
+
+    parts.append("=== Node Information ===")
+    for node_id, info in result["nodes"].items():
+        parts.append(f"- node_id: {node_id} | name: {info['name']} | type: {info['type']}")
+
+    parts.append("\n=== Neighborhood Relationships ===")
+    for node_id, rels in result["neighborhood"].items():
+        if not rels:
+            parts.append(f"- {node_id}: no outgoing neighbors found")
+            continue
+        for rel in rels:
+            parts.append(
+                f"- {rel['source_name']} -> {rel['target_name']} | "
+                f"type: {rel['type']} | money_amount: {rel['money_amount']}"
+            )
+
+    if result["shortest_paths"]:
+        parts.append("\n=== Shortest Paths ===")
+        for pair, edges in result["shortest_paths"].items():
+            if not edges:
+                parts.append(f"- {pair}: no path found")
+                continue
+            parts.append(f"- {pair}:")
+            for edge in edges:
+                parts.append(
+                    f"  {edge['source_name']} -> {edge['target_name']} | "
+                    f"type: {edge['type']} | money_amount: {edge['money_amount']}"
+                )
+
+    return "\n".join(parts)
+```
+
+```{python}
+#| label: config-c-kg-helpers-2
+#| eval: true
+#| code-summary: "Build KG context formatter for Config C"
+
+RELATIONSHIPS_METADATA = """
+The following context is extracted from a Knowledge Graph and describes entities and their relationships.
+Each section contains:
+1. Node Information
+2. Neighborhood Relationships
+3. Shortest Paths between matched nodes, when available
+Interpret A -> B as a directional relationship.
+Use this information to answer questions about connections, entities, roles, or ties.
+"""
+
+
+def retrieve_kg_context_c(query: str, graph, index=config_c_index) -> str:
+    node_matches = get_node_matches_c(query, index=index)
+    if len(node_matches) == 0:
+        return ""
+
+    result = gather_node_relationships(graph, node_matches, max_neighbors=5)
+    context = format_relationship_data(result)
+    return RELATIONSHIPS_METADATA.strip() + "\n\n" + context
+
+
+def kg_retrieval_step_c(x: dict) -> dict:
+    query = x["question"]
+    return {
+        "question": query,
+        "doc_context": x["doc_context"],
+        "kg_context": retrieve_kg_context_c(query, config_c_graph),
+    }
+```
+
+```{python}
+#| label: config-c-pipeline
+#| eval: true
+#| code-summary: "Rebuild Config C pipeline"
+
+config_c_template = """You are an assistant for question-answering tasks about AI trends.
+Use both the retrieved document context and the relational knowledge graph context to answer the question.
+Base your answer strictly on the provided evidence.
+If the graph supplies relationship information that helps answer the question, incorporate it.
+If either source is missing, rely on the other source without inventing facts.
+Keep the answer concise but informative.
+
+Question: {question}
+
+Document Context:
+{doc_context}
+
+Knowledge Graph Context:
+{kg_context}
+
+Answer:
+"""
+
+config_c_prompt = ChatPromptTemplate.from_template(config_c_template)
+
+rag_chain_c = (
+    RunnableParallel(
+        {
+            "doc_context": retriever_c | deduplicate_by_url | format_docs,
+            "question": RunnablePassthrough(),
+        }
+    )
+    | RunnableLambda(kg_retrieval_step_c)
+    | config_c_prompt
+    | llm
+    | StrOutputParser()
+)
+
+print("Config C ready.")
+```
+
+## Unified Evaluation Wrappers
+
+The three pipelines return the same structures, the final answer string. These wrappers standardize the output for evaluation.
+
+```{python}
+#| label: wrappers
+#| eval: true
+#| code-summary: "Wrap each configuration into a unified evaluation interface"
+
+def run_config_a(question: str) -> dict:
+    result = rag_chain_a.invoke(question)
+    docs = result.get("context", [])
+    return {
+        "answer": result.get("answer", ""),
+        "contexts": [doc.page_content for doc in docs],
+        "sources": docs_to_sources(docs),
+    }
+
+
+def run_config_b(question: str) -> dict:
+    answer = rag_chain_b.invoke(question)
+    docs = deduplicate_by_url(retriever_b.invoke(question))
+    return {
+        "answer": answer if isinstance(answer, str) else str(answer),
+        "contexts": [doc.page_content for doc in docs],
+        "sources": docs_to_sources(docs),
+        "kg_context": retrieve_kg_context_b(question, config_b_graph),
+    }
+
+
+def run_config_c(question: str) -> dict:
+    answer = rag_chain_c.invoke(question)
+    docs = deduplicate_by_url(retriever_c.invoke(question))
+    return {
+        "answer": answer if isinstance(answer, str) else str(answer),
+        "contexts": [doc.page_content for doc in docs],
+        "sources": docs_to_sources(docs),
+        "kg_context": retrieve_kg_context_c(question, config_c_graph),
+    }
+```
+
+## Test Run
+
+Before launching the full benchmark, we test one question through all three pipelines.
+
+```{python}
+#| label: sanity-check
+#| eval: true
+#| code-summary: "Run one question through all three configurations"
+
+test_question = benchmark_df.iloc[0]["Question"]
+print("Test question:", test_question)
+
+print("\n--- Config A ---")
+print(run_config_a(test_question)["answer"])
+
+print("\n--- Config B ---")
+print(run_config_b(test_question)["answer"])
+
+print("\n--- Config C ---")
+print(run_config_c(test_question)["answer"])
+```
+
+## Run the Benchmark
+
+We now evaluate all benchmark questions on the three configurations and save the raw outputs to disk.
+
+```{python}
+#| label: run-benchmark
+#| eval: true
+#| code-summary: "Run all benchmark questions through all three configurations"
+#| echo: false
+
+RAW_OUTPUTS_PATH = RAW_DIR / "benchmark_raw_outputs.csv"
+
+
+def run_benchmark(benchmark_df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+
+    configs = {
+        "config_a_text_only": run_config_a,
+        "config_b_provided_kg": run_config_b,
+        "config_c_stage1_kg": run_config_c,
+    }
+
+    for _, row in benchmark_df.iterrows():
+        qid = row["id"]
+        qtype = row.get("Question_Type", "general")
+        question = row["Question"]
+        reference_answer = row.get("Reference_Answer", "")
+        relevant_chunk = row.get("Relevant_Chunk", "")
+
+        for config_name, runner in configs.items():
+            try:
+                result = runner(question)
+                rows.append({
+                    "id": qid,
+                    "config": config_name,
+                    "Question_Type": qtype,
+                    "Question": question,
+                    "Reference_Answer": reference_answer,
+                    "Relevant_Chunk": relevant_chunk,
+                    "Generated_Answer": result.get("answer", ""),
+                    "KG_Context": result.get("kg_context", ""),
+                    "error_flag": False,
+                })
+            except Exception as e:
+                rows.append({
+                    "id": qid,
+                    "config": config_name,
+                    "Question_Type": qtype,
+                    "Question": question,
+                    "Reference_Answer": reference_answer,
+                    "Relevant_Chunk": relevant_chunk,
+                    "Generated_Answer": f"[ERROR] {str(e)}",
+                    "KG_Context": "",
+                    "error_flag": True,
+                })
+
+    return pd.DataFrame(rows)
+
+
+results_df = run_benchmark(benchmark_df)
+results_df.to_csv(RAW_OUTPUTS_PATH, index=False)
+
+print(f"Saved raw outputs to: {RAW_OUTPUTS_PATH}")
+print(results_df.shape)
+results_df.head(6)
+```
+
+## Automated Evaluation with an LLM Judge
+
+Instead of relying only on lexical overlap, we use an LLM judge to score three dimensions highlighted in the lecture and project brief:
+
+- **Answer Relevance**
+- **Faithfulness to Retrieved Evidence**
+- **Context Grounding**
+
+Each score ranges from 1 to 5. The judge also returns a short rationale.
+
+```{python}
+#| label: judge-setup
+#| eval: true
+#| code-summary: "Define the evaluation prompt for the LLM judge"
+
+judge_prompt = ChatPromptTemplate.from_template("""
+You are evaluating the output of a retrieval-augmented generation system.
+Score the answer on three dimensions using the scale 1 to 5.
+
+Dimensions:
+1. answer_relevance: Does the answer directly address the question?
+2. faithfulness: Is the answer consistent with the retrieved evidence?
+3. context_grounding: Does the answer clearly rely on the provided retrieved context rather than unsupported claims?
+
+Question: {question}
+Reference Answer: {reference_answer}
+Relevant Chunk: {relevant_chunk}
+Retrieved Contexts: {retrieved_contexts}
+Generated Answer: {generated_answer}
+
+Return JSON only in this format:
+{{
+  "answer_relevance": 1,
+  "faithfulness": 1,
+  "context_grounding": 1,
+  "rationale": "short explanation"
+}}
+""")
+
+judge_chain = judge_prompt | llm | StrOutputParser()
+```
+
+```{python}
+#| label: llm-judge
+#| eval: true
+#| code-summary: "Score each benchmark output with the LLM judge"
+
+EVALUATION_RESULTS_PATH = EVAL_DIR / "evaluation_results.csv"
+
+
+def safe_parse_json(text: str) -> dict:
+    cleaned = str(text).strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("```")[1]
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+    return json.loads(cleaned)
+
+
+scored_rows = []
+for _, row in results_df.iterrows():
+    if row["error_flag"]:
+        scored_rows.append({
+            **row.to_dict(),
+            "answer_relevance": np.nan,
+            "faithfulness": np.nan,
+            "context_grounding": np.nan,
+            "rationale": "Pipeline error",
+        })
+        continue
+
+    try:
+        retrieved_contexts = row.get("KG_Context", "") or ""
+
+        judge_response = judge_chain.invoke({
+            "question": row["Question"],
+            "reference_answer": row["Reference_Answer"],
+            "relevant_chunk": row["Relevant_Chunk"],
+            "retrieved_contexts": retrieved_contexts,
+            "generated_answer": row["Generated_Answer"],
+        })
+        scores = safe_parse_json(judge_response)
+
+        scored_rows.append({
+            **row.to_dict(),
+            "answer_relevance": scores.get("answer_relevance"),
+            "faithfulness": scores.get("faithfulness"),
+            "context_grounding": scores.get("context_grounding"),
+            "rationale": scores.get("rationale", ""),
+        })
+    except Exception as e:
+        scored_rows.append({
+            **row.to_dict(),
+            "answer_relevance": np.nan,
+            "faithfulness": np.nan,
+            "context_grounding": np.nan,
+            "rationale": f"Judge error: {e}",
+        })
+
+
+eval_df = pd.DataFrame(scored_rows)
+eval_df.to_csv(EVALUATION_RESULTS_PATH, index=False)
+
+print(f"Saved scored evaluation to: {EVALUATION_RESULTS_PATH}")
+eval_df.head(6)
+```
+
+## Summary Tables
+
+We aggregate the evaluation scores by configuration and by question type.
+
+```{python}
+#| label: summary-by-config
+#| eval: true
+#| code-summary: "Aggregate scores by configuration"
+
+SUMMARY_PATH = EVAL_DIR / "evaluation_summary.csv"
+
+# Load scored eval results (cast score columns to numeric to be safe)
+_eval = pd.read_csv(EVALUATION_RESULTS_PATH)
+for _col in ["answer_relevance", "faithfulness", "context_grounding"]:
+    _eval[_col] = pd.to_numeric(_eval[_col], errors="coerce")
+
+summary_by_config = (
+    _eval.groupby("config", as_index=False)
+    .agg(
+        n_questions=("id", "count"),
+        n_errors=("error_flag", "sum"),
+        avg_answer_relevance=("answer_relevance", "mean"),
+        avg_faithfulness=("faithfulness", "mean"),
+        avg_context_grounding=("context_grounding", "mean"),
+    )
+)
+
+summary_by_config["overall_mean"] = (
+    summary_by_config[[
+        "avg_answer_relevance",
+        "avg_faithfulness",
+        "avg_context_grounding",
+    ]].mean(axis=1)
+)
+
+summary_by_config = summary_by_config.round(2)
+summary_by_config.to_csv(SUMMARY_PATH, index=False)
+summary_by_config
+```
+
+```{python}
+#| label: summary-by-question-type
+#| eval: true
+#| code-summary: "Aggregate scores by configuration and question type"
+
+summary_by_type = (
+    _eval.groupby(["config", "Question_Type"], as_index=False)
+    .agg(
+        avg_answer_relevance=("answer_relevance", "mean"),
+        avg_faithfulness=("faithfulness", "mean"),
+        avg_context_grounding=("context_grounding", "mean"),
+    )
+)
+
+summary_by_type = summary_by_type.round(2)
+summary_by_type
+```
+
+
+
+
+## Visual Comparison
+
+```{python}
+#| label: plot-results
+#| eval: true
+#| code-summary: "Create a simple visual comparison of the three configurations"
+
+import matplotlib.pyplot as plt
+
+plot_df = summary_by_config.set_index("config")[[
+    "avg_answer_relevance",
+    "avg_faithfulness",
+    "avg_context_grounding",
+]]
+
+# Friendly labels for the legend
+plot_df.columns = ["Answer Relevance", "Faithfulness", "Context Grounding"]
+
+fig, ax = plt.subplots(figsize=(10, 5))
+plot_df.plot(kind="bar", ax=ax)
+ax.set_title("Average Evaluation Scores by Configuration")
+ax.set_ylabel("Score (1–5)")
+ax.set_xlabel("Configuration")
+ax.set_ylim(0, 5)
+ax.yaxis.set_minor_locator(plt.MultipleLocator(0.5))
+ax.grid(axis="y", linestyle="--", alpha=0.5)
+plt.xticks(rotation=20, ha="right")
+plt.tight_layout()
+
+fig_path = FIG_DIR / "config_score_comparison.png"
+plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+plt.show()
+
+print(f"Saved figure to: {fig_path}")
+```
+
+
+## Interpretation
+
+The evaluation scores paint a clear and consistent picture: all three configurations perform poorly across every dimension, with average scores clustering between 1.2 and 1.8 on a 1–5 scale. This is not a marginal underperformance — it indicates that none of the systems are reliably grounding their answers in the retrieved evidence or responding in a way that the judge considers directly relevant to the question.
+
+**Config A (text-only baseline)** achieves the best overall averages across the board (1.63 answer relevance, 1.53 faithfulness, 1.53 context grounding), which is a counterintuitive but instructive result. A text-only pipeline with no additional complexity is outperforming both graph-augmented variants. This suggests that the graph integration is not yet adding signal - instead, it is adding noise. When the KG context passed into the prompt is loosely matched or poorly formatted relative to the question, it competes with the document context rather than complementing it, and the LLM judge penalises answers that drift from the grounded evidence.
+
+**Config B (provided knowledge graph)** scores marginally above Config A on answer relevance (1.67) but is nearly identical on faithfulness and context grounding (1.60 and 1.53). The small advantage on relevance may reflect that the provided graph carries richer descriptive node attributes (activity, popularity, trend), which can occasionally surface relevant entity-level detail. However, the improvement is negligible, and faithfulness remains low, meaning the generated answers are not staying close to the retrieved content even when the graph adds context.
+
+**Config C (Stage 1 knowledge graph)** performs the worst across all metrics and all question types, with factual questions scoring as low as 1.1 on both faithfulness and context grounding. The Stage 1 graph was built from entity and relationship extraction over the raw corpus, which produces a more relational but also noisier structure. When the graph retrieval step matches tokens to node names, it pulls in relational paths and neighborhood edges that are structurally correct but semantically thin — they describe connections between entities rather than explaining them. This kind of context is not well suited to grounding factual or analytical answers, and the judge scores reflect that directly.
+
+Across question types, the pattern holds without exception. **Factual** questions score highest within each configuration, which is expected since factual answers are more likely to be explicitly stated in a retrieved chunk. **Analytical** and **comparative** questions consistently score lower, confirming that the current retrieval and context integration strategies are not sufficient for multi-step or inferential reasoning. Notably, Config C does not gain any measurable advantage on comparative questions despite the relational structure of its graph — the token-matching retrieval method is too coarse to identify the right nodes for a given comparison, so the KG context that reaches the prompt is often irrelevant.
+
+The underlying cause across all three systems is likely the same: **the retrieval step is not surfacing evidence that is close enough to the question for the LLM to produce a grounded, relevant answer**. The vector store retrieves semantically similar chunks, but semantic similarity at the embedding level does not guarantee that the content directly answers the question. Without a filtering or re-ranking step, irrelevant or tangentially related passages reach the prompt and lower faithfulness and context grounding scores. The KG context compounds this problem when the matched nodes are off-topic, since the prompt becomes longer and less focused without becoming more informative.
+
+## Conclusion
+
+This chapter built and executed a complete evaluation framework for the three RAG configurations produced in Stage 3. The benchmark covered 30 questions per configuration across factual, analytical, and comparative question types, and an LLM judge scored each response on answer relevance, faithfulness, and context grounding. The results are clear and consistent: all three systems perform poorly, with average scores below 1.7 on a 1–5 scale, and no configuration demonstrates reliable grounding in the retrieved evidence.
+
+The text-only baseline (Config A) achieved the best results overall, which is a significant finding. It means that the current graph integration strategy — for both the provided knowledge graph and the Stage 1 graph — is not yet contributing positively to answer quality. The additional context introduced by the knowledge graphs appears to dilute rather than improve the prompt, likely because the token-matching retrieval is too imprecise and the graph context passed to the LLM is not sufficiently filtered or focused on the question. Config C in particular suffers from this, as its relational graph structure produces contextually thin edge and path descriptions that the judge consistently scores as poorly grounded.
+
+These results do not indicate a broken pipeline — all configurations generate fluent answers and complete the benchmark without errors. What they reveal is a **retrieval quality bottleneck**: the systems are retrieving and passing content to the LLM, but not the right content, and not in a form that enables well-grounded generation. This is consistent with the lecture emphasis on the importance of evidence selection and prioritisation in RAG systems, and it directly motivates the enhancement explored in the next chapter. Introducing **re-ranking** before generation is a natural and well-motivated next step: by filtering retrieved chunks down to those most relevant to the specific question, re-ranking can reduce context noise and give the LLM a better basis for producing faithful, relevant, and grounded answers.

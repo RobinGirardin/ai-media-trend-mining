@@ -1,9 +1,645 @@
 ---
-title: "Enhancement: HyDE / Multi-Query (Optional)"
+title: "Enhancement: Re-ranking the Text-Only RAG Baseline"
 execute:
   eval: false
 ---
 
-This chapter applies HyDE (Hypothetical Document Embeddings) and/or Multi-Query retrieval to the best-performing configuration and evaluates the impact on RAGAS metrics.
+This chapter implements one focused enhancement to the Stage 3 RAG system: **second-pass re-ranking**.
+
+Chapter 5 showed that the **text-only baseline (Config A)** was already a strong configuration. That makes it a sensible starting point for improvement: rather than changing several components at once, this chapter keeps the baseline architecture intact and modifies only the retrieval stage.
+
+The main idea is simple. Dense retrieval is useful for finding semantically related chunks, but the first-pass ranking is not always precise enough for question answering. A reranker adds a second step: it scores a wider set of retrieved candidates against the full question and keeps only the most relevant chunks for generation.
+
+This enhancement is strongly aligned with the course material. The project brief explicitly allows a targeted enhancement proposal, and the lecture presents rerankers as an important way to improve RAG quality by reducing noisy context before generation.
+
+## Objective
+
+This chapter answers one practical question:
+
+>Does adding a reranking step improve the performance of the RAG baseline from Chapter 6?
+
+The comparison is therefore:
+
+- **Baseline:** Config A (text-only RAG)
+- **Enhanced:** Config A + reranking
+
+The same benchmark, scoring dimensions, and output structure from Chapter 6 are reused so that the comparison remains directly interpretable.
 
 ## Setup
+
+```{python}
+#| label: imports
+#| eval: false
+#| code-summary: "Show imports"
+#| message: false
+#| warning: false
+
+import json
+import re
+import warnings
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import pandas as pd
+from dotenv import load_dotenv
+
+import chromadb
+
+from langchain_openai import ChatOpenAI
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+load_dotenv()
+warnings.filterwarnings("ignore")
+
+
+REPO_ROOT = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
+STAGE3_DIR = REPO_ROOT / "data" / "processed" / "stage3"
+EVAL_DIR = STAGE3_DIR / "evaluation"
+ARTIFACTS_DIR = EVAL_DIR / "artifacts"
+CONFIG_A_DIR = ARTIFACTS_DIR / "config_a"
+
+with open(CONFIG_A_DIR / "manifest.json", "r", encoding="utf-8") as f:
+    config_a_manifest = json.load(f)
+```
+
+## Load Baseline Artifacts and Chapter 6 Outputs
+
+We reuse the saved baseline artifacts and the benchmark generated in Chapter 6. This keeps the workflow reproducible and avoids rerunning the full Stage 3 pipeline.
+
+```{python}
+#| label: enhancement-paths-and-loads
+#| eval: false
+#| code-summary: "Create enhancement folders and load benchmark and Chapter 6 results"
+
+ENH_DIR = EVAL_DIR / "enhancement"
+ENH_RAW_DIR = ENH_DIR / "raw"
+ENH_FIG_DIR = ENH_DIR / "figures"
+
+for d in [ENH_DIR, ENH_RAW_DIR, ENH_FIG_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
+
+BENCHMARK_PATH = EVAL_DIR / "benchmark_questions.csv"
+BASELINE_RESULTS_PATH = EVAL_DIR / "evaluation_results.csv"
+BASELINE_SUMMARY_PATH = EVAL_DIR / "evaluation_summary.csv"
+
+if not BENCHMARK_PATH.exists():
+    raise FileNotFoundError(f"Benchmark file not found: {BENCHMARK_PATH}")
+if not BASELINE_RESULTS_PATH.exists():
+    raise FileNotFoundError(f"Baseline results file not found: {BASELINE_RESULTS_PATH}")
+
+benchmark_df = pd.read_csv(BENCHMARK_PATH)
+baseline_results_df = pd.read_csv(BASELINE_RESULTS_PATH)
+
+
+benchmark_df.head(5)
+```
+
+### Ensure Question Types Are Preserved
+
+```{python}
+#| label: ensure-question-types
+#| eval: false
+#| code-summary: "Ensure the benchmark contains Question_Type labels"
+
+if "Question_Type" not in benchmark_df.columns:
+    qa_reviewed_path = STAGE3_DIR / "qa_dataset_reviewed.csv"
+    if not qa_reviewed_path.exists():
+        raise KeyError(
+            "benchmark_questions.csv does not contain 'Question_Type' and qa_dataset_reviewed.csv was not found."
+        )
+
+    qa_reviewed_df = pd.read_csv(qa_reviewed_path)
+    qa_reviewed_df.columns = qa_reviewed_df.columns.str.strip()
+
+    if not {"question", "type"}.issubset(qa_reviewed_df.columns):
+        raise KeyError("qa_dataset_reviewed.csv must contain 'question' and 'type'.")
+
+    benchmark_df = benchmark_df.merge(
+        qa_reviewed_df[["question", "type"]].rename(
+            columns={"question": "Question", "type": "Question_Type"}
+        ),
+        on="Question",
+        how="left",
+    )
+
+print("Benchmark columns:", benchmark_df.columns.tolist())
+print(benchmark_df["Question_Type"].value_counts(dropna=False))
+```
+
+## Re-ranking
+
+The baseline retriever returns the top-*k* chunks according to vector similarity. This works well for semantic matching, but it does not always place the **most useful** chunk first. In question answering, that matters because the generator sees only a small amount of context.
+
+A reranker improves this by:
+
+1. retrieving a **wider candidate set**,
+2. scoring each `(question, chunk)` pair more precisely,
+3. keeping only the **best-ranked** chunks for generation.
+
+This chapter uses a lightweight cross-encoder reranker because it is practical, easy to explain, and directly linked to the lecture discussion of modern RAG pipelines.
+
+## Build the Enhanced Retrieval Pipeline
+
+```{python}
+#| label: reranker-setup
+#| eval: false
+#| code-summary: "Load embeddings, vector store, baseline LLM, and the reranker"
+
+from sentence_transformers import CrossEncoder
+
+embedding_model = HuggingFaceEmbeddings(
+    model_name=config_a_manifest["embedding_model_name"],
+    model_kwargs={"device": "cpu"},
+)
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+chroma_client = chromadb.PersistentClient(path=config_a_manifest["chromadb_path"])
+store = Chroma(
+    client=chroma_client,
+    collection_name=config_a_manifest["collection_name"],
+    embedding_function=embedding_model,
+)
+
+# Baseline retriever (same as Config A)
+retriever_a = store.as_retriever(
+    search_kwargs={"k": config_a_manifest.get("top_k", 8)}
+)
+
+# Retrieve more candidates than in the baseline, then re-rank.
+candidate_retriever = store.as_retriever(
+    search_type="similarity",
+    search_kwargs={"k": 12},
+)
+
+# Lightweight cross-encoder reranker
+reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+print("Baseline retriever and reranker are ready.")
+```
+
+```{python}
+#| label: reranker-helpers
+#| eval: false
+#| code-summary: "Define helper functions for reranking, formatting, and metadata extraction"
+
+def deduplicate_by_url(docs, max_per_url: int = 1):
+    seen = {}
+    result = []
+    for doc in docs:
+        url = doc.metadata.get("url", "")
+        seen[url] = seen.get(url, 0) + 1
+        if seen[url] <= max_per_url:
+            result.append(doc)
+    return result
+
+
+def rerank_documents(question: str, docs, top_n: int = 5):
+    if len(docs) == 0:
+        return []
+
+    pairs = [(question, doc.page_content) for doc in docs]
+    scores = reranker.predict(pairs)
+
+    ranked = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
+    return [doc for doc, _ in ranked[:top_n]]
+
+
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+
+def safe_metadata(doc, key: str, default=""):
+    try:
+        return doc.metadata.get(key, default)
+    except Exception:
+        return default
+
+
+def docs_to_sources(docs):
+    return [
+        {
+            "title": safe_metadata(doc, "title", ""),
+            "url": safe_metadata(doc, "url", ""),
+            "domain": safe_metadata(doc, "domain", ""),
+            "media_id": safe_metadata(doc, "media_id", ""),
+            "chunk_id": safe_metadata(doc, "chunk_id", ""),
+        }
+        for doc in docs
+    ]
+```
+
+## Enhanced Config A Pipeline
+
+The prompt remains intentionally close to the baseline from Chapter 6. The only change is that the retrieved context is now **re-ranked** before generation.
+
+```{python}
+#| label: enhanced-rag-pipeline
+#| eval: false
+#| code-summary: "Build the reranked text-only generation chain"
+
+reranked_template = """You are an assistant for question-answering tasks about AI trends.
+Use the following retrieved context to answer the question.
+Base your answer strictly on the provided context.
+If the context contains relevant information, use it even if it is partial.
+Keep the answer concise but informative.
+
+Question: {question}
+
+Context: {context}
+
+Answer:
+"""
+
+reranked_prompt = ChatPromptTemplate.from_template(reranked_template)
+
+reranked_generation_chain = (
+    reranked_prompt
+    | llm
+    | StrOutputParser()
+)
+
+
+```
+
+## Run the Same Benchmark
+
+The reranked system is evaluated on the exact same benchmark used in Chapter 6.
+
+```{python}
+#| label: run-reranked-benchmark
+#| eval: false
+#| code-summary: "Run the reranked system on the shared benchmark"
+
+RERANKED_RAW_PATH = ENH_RAW_DIR / "benchmark_raw_outputs_reranked.csv"
+TOP_K_RERANKED = 5
+
+enhanced_rows = []
+
+for _, row in benchmark_df.iterrows():
+    question = row["Question"]
+
+    # 1. Retrieve a wider candidate set
+    initial_docs = candidate_retriever.invoke(question)
+    initial_docs = deduplicate_by_url(initial_docs, max_per_url=1)
+
+    # 2. Re-rank the candidates
+    reranked_docs = rerank_documents(question, initial_docs, top_n=TOP_K_RERANKED)
+    final_docs = reranked_docs[:TOP_K_RERANKED]
+
+    # 3. Build the final context
+    context = format_docs(final_docs)
+
+    # 4. Generate answer
+    answer = reranked_generation_chain.invoke({
+        "question": question,
+        "context": context
+    })
+
+    enhanced_rows.append({
+        "id": row["id"],
+        "config": "config_a_text_only_reranked",
+        "Question_Type": row.get("Question_Type", None),
+        "Question": question,
+        "Reference_Answer": row["Reference_Answer"],
+        "Relevant_Chunk": row["Relevant_Chunk"],
+        "Generated_Answer": answer if isinstance(answer, str) else str(answer),
+        "Retrieved_Contexts": json.dumps([doc.page_content for doc in final_docs], ensure_ascii=False),
+        "Retrieved_Sources": json.dumps(docs_to_sources(final_docs), ensure_ascii=False),
+        "error_flag": False,
+    })
+
+reranked_raw_df = pd.DataFrame(enhanced_rows)
+reranked_raw_df.to_csv(RERANKED_RAW_PATH, index=False)
+
+print(f"Saved reranked raw outputs to: {RERANKED_RAW_PATH}")
+reranked_raw_df.head(3)
+
+print(reranked_raw_df.columns.tolist())
+
+```
+
+## Score the Reranked Outputs
+
+To keep the comparison consistent with Chapter 6, the reranked outputs are scored on the same three dimensions:
+
+- **answer relevance**
+- **faithfulness**
+- **context grounding**
+
+Each metric is rated on a 1–5 scale by an LLM judge, and the judge returns a short rationale in JSON format.
+
+```{python}
+#| label: judge-setup
+#| eval: false
+#| code-summary: "Create the LLM judge used to score reranked outputs"
+
+judge_llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+judge_prompt = ChatPromptTemplate.from_template("""
+You are evaluating a retrieval-augmented QA system.
+
+Score the generated answer on three dimensions using integers from 1 to 5:
+- answer_relevance: how directly the answer addresses the question
+- faithfulness: how well the answer stays consistent with the provided evidence
+- context_grounding: how clearly the answer relies on the retrieved context
+
+Question:
+{question}
+
+Reference answer:
+{reference_answer}
+
+Retrieved context:
+{retrieved_context}
+
+Generated answer:
+{generated_answer}
+
+Return JSON only in this exact format:
+{{
+  "answer_relevance": <int 1-5>,
+  "faithfulness": <int 1-5>,
+  "context_grounding": <int 1-5>,
+  "rationale": "<short rationale>"
+}}
+""")
+
+
+def parse_json_object(text: str):
+    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    if not match:
+        raise ValueError(f"Could not parse JSON from judge response: {text}")
+    return json.loads(match.group(0))
+```
+
+```{python}
+#| label: judge-reranked-outputs
+#| eval: false
+#| code-summary: "Score the reranked outputs with the LLM judge"
+
+RERANKED_SCORED_PATH = ENH_DIR / "evaluation_results_reranked.csv"
+
+scored_rows = []
+for _, row in reranked_raw_df.iterrows():
+    retrieved_context = row["Retrieved_Contexts"]
+
+    judge_response = judge_llm.invoke(
+        judge_prompt.format_messages(
+            question=row["Question"],
+            reference_answer=row["Reference_Answer"],
+            retrieved_context=retrieved_context,
+            generated_answer=row["Generated_Answer"],
+        )
+    )
+    parsed = parse_json_object(judge_response.content)
+
+    scored_rows.append({
+        **row.to_dict(),
+        "answer_relevance": parsed["answer_relevance"],
+        "faithfulness": parsed["faithfulness"],
+        "context_grounding": parsed["context_grounding"],
+        "rationale": parsed["rationale"],
+    })
+
+reranked_eval_df = pd.DataFrame(scored_rows)
+reranked_eval_df.to_csv(RERANKED_SCORED_PATH, index=False)
+
+print(f"Saved reranked evaluation results to: {RERANKED_SCORED_PATH}")
+_display_cols = [c for c in reranked_eval_df.columns if c not in ["Retrieved_Contexts", "Retrieved_Sources"]]
+reranked_eval_df[_display_cols].head(3)
+```
+
+## Load Saved Enhancement Results from Disk
+
+The following cells are used for normal reruns of the notebook. They keep the full implementation above visible for demonstration purposes, but avoid new embedding, retrieval, reranking, generation, and LLM-judge calls. Instead, the notebook loads the already saved results from disk.
+
+```{python}
+#| label: load-saved-results-setup
+#| eval: true
+#| code-summary: "Resolve paths and load saved baseline and reranked results from disk"
+#| message: false
+#| warning: false
+
+import json
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import pandas as pd
+
+REPO_ROOT = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
+STAGE3_DIR = REPO_ROOT / "data" / "processed" / "stage3"
+EVAL_DIR = STAGE3_DIR / "evaluation"
+
+# Prefer the reranking folder if it exists, otherwise fall back to the original enhancement folder.
+ENH_DIR_CANDIDATES = [
+    EVAL_DIR / "enhancement_reranking",
+    EVAL_DIR / "enhancement",
+]
+ENH_DIR = next((p for p in ENH_DIR_CANDIDATES if p.exists()), ENH_DIR_CANDIDATES[0])
+ENH_RAW_DIR = ENH_DIR / "raw"
+ENH_FIG_DIR = ENH_DIR / "figures"
+
+for d in [ENH_DIR, ENH_RAW_DIR, ENH_FIG_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
+
+BENCHMARK_PATH = EVAL_DIR / "benchmark_questions.csv"
+BASELINE_RESULTS_PATH = EVAL_DIR / "evaluation_results.csv"
+BASELINE_SUMMARY_PATH = EVAL_DIR / "evaluation_summary.csv"
+RERANKED_RAW_PATH = ENH_RAW_DIR / "benchmark_raw_outputs_reranked.csv"
+RERANKED_SCORED_PATH = ENH_DIR / "evaluation_results_reranked.csv"
+
+required_files = [BENCHMARK_PATH, BASELINE_RESULTS_PATH, RERANKED_SCORED_PATH]
+missing = [str(p) for p in required_files if not p.exists()]
+
+if missing:
+    raise FileNotFoundError(
+        "Missing required saved files:\n- " + "\n- ".join(missing)
+    )
+
+benchmark_df = pd.read_csv(BENCHMARK_PATH)
+baseline_results_df = pd.read_csv(BASELINE_RESULTS_PATH)
+reranked_eval_df = pd.read_csv(RERANKED_SCORED_PATH)
+
+if RERANKED_RAW_PATH.exists():
+    reranked_raw_df = pd.read_csv(RERANKED_RAW_PATH)
+else:
+    reranked_raw_df = reranked_eval_df.copy()
+
+benchmark_df.head(5)
+```
+
+```{python}
+#| label: load-question-types-from-disk
+#| eval: true
+#| code-summary: "Ensure saved results preserve question types"
+
+if "Question_Type" not in benchmark_df.columns:
+    qa_reviewed_path = STAGE3_DIR / "qa_dataset_reviewed.csv"
+    if not qa_reviewed_path.exists():
+        raise KeyError(
+            "benchmark_questions.csv does not contain 'Question_Type' and qa_dataset_reviewed.csv was not found."
+        )
+
+    qa_reviewed_df = pd.read_csv(qa_reviewed_path)
+    qa_reviewed_df.columns = qa_reviewed_df.columns.str.strip()
+
+    if not {"question", "type"}.issubset(qa_reviewed_df.columns):
+        raise KeyError("qa_dataset_reviewed.csv must contain 'question' and 'type'.")
+
+    benchmark_df = benchmark_df.merge(
+        qa_reviewed_df[["question", "type"]].rename(
+            columns={"question": "Question", "type": "Question_Type"}
+        ),
+        on="Question",
+        how="left",
+    )
+
+if "Question_Type" not in reranked_eval_df.columns or reranked_eval_df["Question_Type"].isna().all():
+    reranked_eval_df = reranked_eval_df.drop(columns=[c for c in ["Question_Type"] if c in reranked_eval_df.columns])
+    reranked_eval_df = reranked_eval_df.merge(
+        benchmark_df[["id", "Question", "Question_Type"]],
+        on=["id", "Question"],
+        how="left",
+    )
+
+print("Enhancement directory:", ENH_DIR)
+print("Benchmark columns:", benchmark_df.columns.tolist())
+print(reranked_eval_df[["id", "Question_Type"]].head())
+```
+
+## Compare Baseline vs. Reranked Baseline
+
+The baseline comparison uses the Chapter 6 results for `config_a_text_only` and the new reranked scores from this chapter.
+
+```{python}
+#| label: compare-baseline-vs-reranked
+#| eval: true
+#| code-summary: "Create a direct comparison between baseline Config A and reranked Config A"
+
+COMPARISON_PATH = ENH_DIR / "enhancement_comparison.csv"
+
+# Load both results from disk and coerce score columns to numeric
+_score_cols = ["answer_relevance", "faithfulness", "context_grounding"]
+
+_baseline_full = pd.read_csv(BASELINE_RESULTS_PATH)
+for _c in _score_cols:
+    _baseline_full[_c] = pd.to_numeric(_baseline_full[_c], errors="coerce")
+baseline_a_df = _baseline_full[_baseline_full["config"] == "config_a_text_only"].copy()
+
+_reranked = pd.read_csv(RERANKED_SCORED_PATH)
+for _c in _score_cols:
+    _reranked[_c] = pd.to_numeric(_reranked[_c], errors="coerce")
+
+comparison_df = pd.concat([
+    baseline_a_df.assign(system_variant="baseline"),
+    _reranked.assign(system_variant="reranked"),
+], ignore_index=True)
+
+comparison_summary = (
+    comparison_df.groupby(["system_variant"], as_index=False)
+    .agg(
+        n_questions=("id", "count"),
+        avg_answer_relevance=("answer_relevance", "mean"),
+        avg_faithfulness=("faithfulness", "mean"),
+        avg_context_grounding=("context_grounding", "mean"),
+    )
+)
+comparison_summary["overall_mean"] = comparison_summary[[
+    "avg_answer_relevance",
+    "avg_faithfulness",
+    "avg_context_grounding",
+]].mean(axis=1)
+
+comparison_summary = comparison_summary.round(2)
+comparison_summary.to_csv(COMPARISON_PATH, index=False)
+comparison_summary
+```
+
+## Comparison by Question Type
+
+This breakdown helps test the Chapter 6 hypothesis that improvements may be more visible for certain question types, especially more demanding comparison-oriented questions.
+
+```{python}
+#| label: comparison-by-question-type
+#| eval: true
+#| code-summary: "Summarize baseline vs reranked performance by question type"
+
+TYPE_COMPARISON_PATH = ENH_DIR / "enhancement_comparison_by_type.csv"
+
+type_summary = (
+    comparison_df.groupby(["system_variant", "Question_Type"], as_index=False)
+    .agg(
+        avg_answer_relevance=("answer_relevance", "mean"),
+        avg_faithfulness=("faithfulness", "mean"),
+        avg_context_grounding=("context_grounding", "mean"),
+    )
+)
+type_summary["overall_mean"] = type_summary[[
+    "avg_answer_relevance",
+    "avg_faithfulness",
+    "avg_context_grounding",
+]].mean(axis=1)
+
+type_summary = type_summary.round(2)
+type_summary.to_csv(TYPE_COMPARISON_PATH, index=False)
+type_summary
+```
+
+## Visual Comparison
+
+```{python}
+#| label: comparison-figure
+#| eval: true
+#| code-summary: "Plot baseline vs reranked scores"
+
+FIG_PATH = ENH_FIG_DIR / "baseline_vs_reranked_overall_mean.png"
+
+plot_df = comparison_summary.set_index("system_variant")[[
+    "avg_answer_relevance",
+    "avg_faithfulness",
+    "avg_context_grounding",
+    "overall_mean",
+]]
+plot_df.columns = ["Answer Relevance", "Faithfulness", "Context Grounding", "Overall Mean"]
+
+fig, ax = plt.subplots(figsize=(9, 5))
+plot_df.T.plot(kind="bar", ax=ax)
+ax.set_title("Baseline vs. Reranked Baseline")
+ax.set_ylabel("Average Score (1–5)")
+ax.set_xlabel("Metric")
+ax.set_ylim(0, 5)
+ax.yaxis.set_minor_locator(plt.MultipleLocator(0.5))
+ax.grid(axis="y", linestyle="--", alpha=0.5)
+ax.legend(title="Variant")
+plt.xticks(rotation=0)
+plt.tight_layout()
+plt.savefig(FIG_PATH, dpi=150, bbox_inches="tight")
+plt.show()
+```
+
+
+## Interpretation
+
+The results show a clear and meaningful improvement over the Chapter 6 baseline, with an overall mean rising from **1.56 to 1.91**. The gains are not uniform across dimensions, which makes the picture more informative than a flat improvement would be.
+
+**Faithfulness** shows the strongest gain, increasing from **1.53 to 2.40** — nearly doubling. This is consistent with the expected effect of reranking: the generator receives a cleaner and more relevant set of passages, which reduces the chance of unsupported or loosely supported claims. In other words, improving retrieval quality appears to improve downstream answer faithfulness as well.
+
+**Answer relevance** also improves noticeably, from **1.60 to 2.07**. This suggests that the reranking step is doing its job: by surfacing more relevant passages before generation, the model has better evidence to work with and produces answers that more directly address the question. The reranking step does not appear to damage relevance; instead, it helps the model focus on passages that better match the question.
+
+**Context grounding** is the exception: it declined slightly from **1.53 to 1.27**. This is a nuanced but plausible result. Context grounding as scored by the judge measures how explicitly the answer appears tied to the retrieved context. Reranking can improve passage selection without guaranteeing that the generated answer will make that grounding equally visible to the evaluator, especially for short or synthesized answers. In our case the Context grounding dropped 1.27; however, this represents an improvement from previous runs where the context grouding was 1.0. After changing multiple times the promt for the LLM we achieved a score of 1.27 after reranking
+
+The per-type breakdown clarifies where the enhancement works best. **Factual** questions benefit most, with the reranked overall mean reaching **2.10** compared to **1.80** for the baseline. Analytical had the highest improvement from **1.37** to **2.10**. while the **comparative** questions only improved with a **0.03**.
+
+## Conclusion
+
+This chapter implemented and evaluated a focused enhancement to the text-only RAG baseline: cross-encoder reranking. The goal was to improve which passages reach the generator while keeping the rest of the baseline architecture unchanged.
+
+The results support this framing. The overall mean improved from **1.56 to 1.91**, with faithfulness showing the largest absolute gain (1.53 → 2.40). Answer relevance also improved, confirming that reranking contributed positively to the retrieval side. The one dimension that did not improve — context grounding — suggests that better passage ordering alone is not enough to make answer grounding consistently visible to the evaluator.
+
+From a practical standpoint, the enhancement demonstrates that meaningful performance gains are achievable without changing the core RAG architecture. A cross-encoder reranker is a relatively lightweight addition that improved two out of three evaluation dimensions and the overall mean.
+
+The remaining gap in context grounding and the weaker gains on comparative questions point to the natural next step: improving prompting or context handling for multi-document reasoning tasks where synthesis across passages is necessary. For single-document factual retrieval, the current pipeline already performs substantially better than the Chapter 6 baseline.
