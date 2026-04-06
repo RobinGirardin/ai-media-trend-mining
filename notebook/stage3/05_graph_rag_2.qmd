@@ -29,6 +29,7 @@ from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough, RunnableLambda
+from typing import List, Optional, Dict, Any
 
 REPO_DIR = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
 DATA_DIR = Path(REPO_DIR, "data", "processed")
@@ -587,3 +588,45 @@ Additionnaly, the overall pipeline relies on a simple manually tokenazation algo
 Lastly, the selection process of the relevant elements to retrieve from could be further researched upon.
 Although we believe that we identified each knowledge graph strength, the current approach fairly simple and relies on the matched node and its neighbors.
 A better retrieval schema, leveraging other component, or the relationship better, could achieve better performance.
+
+```{python}
+#| label: Save reusable artifacts for Chapter 6
+#| eval: true
+#| code-summary: "config_c_graph"
+
+import json
+import pickle
+
+REPO_ROOT = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
+DATA_DIR = REPO_ROOT / "data" / "processed"
+STAGE3_DATA_DIR = DATA_DIR / "stage3"
+
+EVAL_DIR = STAGE3_DATA_DIR / "evaluation"
+ARTIFACTS_DIR = EVAL_DIR / "artifacts"
+CONFIG_C_DIR = ARTIFACTS_DIR / "config_c"
+
+for d in [EVAL_DIR, ARTIFACTS_DIR, CONFIG_C_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
+
+# save the built graph object
+with open(CONFIG_C_DIR / "config_c_graph.pkl", "wb") as f:
+    pickle.dump(G, f)
+
+config_c_manifest = {
+    "config_name": "config_c_stage1_kg",
+    "description": "RAG + Stage 1 knowledge graph",
+    "embedding_model_name": "sentence-transformers/all-MiniLM-L6-v2",
+    "chromadb_path": str(STAGE3_DATA_DIR / "chromadb"),
+    "collection_name": "ai-media-minilm",
+    "entities_path": str(DATA_DIR / "knowledge_graph" / "entities.csv"),
+    "relationships_path": str(DATA_DIR / "knowledge_graph" / "relationships.csv"),
+    "graph_pickle_path": str(CONFIG_C_DIR / "config_c_graph.pkl"),
+    "top_k": 8
+}
+
+with open(CONFIG_C_DIR / "manifest.json", "w", encoding="utf-8") as f:
+    json.dump(config_c_manifest, f, ensure_ascii=False, indent=2)
+
+print("Saved Config C artifacts and manifest.")
+print(json.dumps(config_c_manifest, indent=2))
+```

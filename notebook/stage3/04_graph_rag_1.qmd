@@ -69,6 +69,9 @@ from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough, RunnableLambda
+from typing import List
+from dotenv import load_dotenv
+
 
 REPO_DIR = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
 DATA_DIR = Path(REPO_DIR, "data", "processed")
@@ -809,3 +812,42 @@ for doc in result["context"]:
     print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
 ```
 
+```{python}
+#| label: Save reusable artifacts for Chapter 6
+#| eval: true
+#| code-summary: "config_b_provided_kg"
+import json
+import pickle
+
+
+REPO_ROOT = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
+STAGE3_DATA_DIR = REPO_ROOT / "data" / "processed" / "stage3"
+
+EVAL_DIR = STAGE3_DATA_DIR / "evaluation"
+ARTIFACTS_DIR = EVAL_DIR / "artifacts"
+CONFIG_B_DIR = ARTIFACTS_DIR / "config_b"
+
+for d in [EVAL_DIR, ARTIFACTS_DIR, CONFIG_B_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
+
+# save the built graph object
+with open(CONFIG_B_DIR / "config_b_graph.pkl", "wb") as f:
+    pickle.dump(config_b_graph, f)
+
+config_b_manifest = {
+    "config_name": "config_b_provided_kg",
+    "description": "RAG + provided knowledge graph",
+    "embedding_model_name": "sentence-transformers/all-MiniLM-L6-v2",
+    "chromadb_path": str(STAGE3_DATA_DIR / "chromadb"),
+    "collection_name": "ai-media-minilm",
+    "graph_json_path": str(STAGE3_DATA_DIR / "graph.json"),
+    "graph_pickle_path": str(CONFIG_B_DIR / "config_b_graph.pkl"),
+    "top_k": 8
+}
+
+with open(CONFIG_B_DIR / "manifest.json", "w", encoding="utf-8") as f:
+    json.dump(config_b_manifest, f, ensure_ascii=False, indent=2)
+
+print("Saved Config B artifacts and manifest.")
+print(json.dumps(config_b_manifest, indent=2))
+```
