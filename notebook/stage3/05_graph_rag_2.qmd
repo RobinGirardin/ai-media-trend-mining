@@ -410,7 +410,7 @@ def kg_retrieval_step(x: dict) -> dict:
     return {
         "question":   query,
         "doc_context": x["doc_context"],   # already retrieved by Chroma branch
-        "kg_context":  retrieve_kg_context(query, config_b_graph),
+        "kg_context":  retrieve_kg_context(query, G),
     }
 ```
 
