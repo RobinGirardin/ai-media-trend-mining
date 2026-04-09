@@ -10,14 +10,30 @@ The AI Media Dataset (Kaggle) consists of 16,317 news articles covering artifici
 
 Stage 3 implements a Retrieval-Augmented Generation (RAG) system over the AI Media Dataset, integrating structured knowledge graphs with unstructured text retrieval:
 
-- **Part I – Q&A Dataset:** Construction of 200–300 Q&A pairs from representative passages, categorised into factual, analytical, and comparative types.
+- **Part I – Q&A Dataset:** Construction of 215 reviewed Q&A pairs from 80 representative passages, categorised into factual, analytical, and comparative types.
 - **Part II – RAG Baseline:** Text-only RAG pipeline (Config A) using dense retrieval with ChromaDB.
 - **Part III – Graph-Augmented RAG:** Entity-anchored retrieval integrating the provided knowledge graph (Config B) and our Stage 1 knowledge graph (Config C).
-- **Part IV – Evaluation:** RAGAS-based comparison of all three configurations across faithfulness, relevance, and context grounding.
-- **Part V – Enhancement:** HyDE / Multi-Query retrieval as an optional bonus improvement.
+- **Part IV – Evaluation:** LLM-judge-based comparison of all three configurations across faithfulness, answer relevance, and context grounding.
+- **Part V – Enhancement:** Cross-encoder re-ranking applied to Config A to improve retrieval quality.
 
 ## Team
 
 Sever Alin, Girardin Robin & Huber Daniel
 
 *Course: Computational Language Technologies, HSLU Applied Information and Data Science*
+
+## Contributions
+
+- **Huber Daniel:** `02_qa_dataset.qmd` (Q&A dataset construction and review), `03_rag_baseline.qmd` (Config A: text-only RAG pipeline), overall Quarto book structure and project setup.
+- **Girardin Robin:** `04_graph_rag_1.qmd` (Config B: RAG with provided graph.json), `05_graph_rag_2.qmd` (Config C: RAG with Stage 1 knowledge graph).
+- **Sever Alin:** `06_evaluation.qmd` (LLM-judge evaluation of all three configurations), `07_enhancement.qmd` (cross-encoder re-ranking enhancement).
+
+## Use of AI Tools
+
+Throughout this project, generative AI tools were used to support several parts of the workflow.
+
+AI was used for debugging Python code, resolving library-specific questions (LangChain, ChromaDB, FAISS, NetworkX), advising on architectural decisions such as the RAG pipeline design and graph integration strategy, and reviewing pull requests. AI also supported the writing of explanatory text throughout the notebook to ensure clarity and grammatical correctness, as this report is written in English as a non-native language.
+
+AI was also used during active coding sessions to accelerate boilerplate code generation, particularly for the RAG chain setup, graph-lookup functions, and evaluation scoring logic.
+
+It is important to note that AI tools occasionally produced ambiguous or inconsistent answers, particularly for complex pipeline logic or edge cases in library APIs. All outputs were critically reviewed, and final decisions - including graph integration strategy, retrieval design choices, and evaluation interpretations - were made manually by the team.
