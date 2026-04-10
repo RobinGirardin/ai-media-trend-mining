@@ -10,15 +10,26 @@ This chapter evaluates the three RAG configurations built in Stage 3 on a shared
 - **Config B:** RAG + provided knowledge graph
 - **Config C:** RAG + Stage 1 knowledge graph
 
-The evaluation follows the project requirement to compare text-only and graph-augmented RAG systems using a common set of benchmark questions and grounded evidence. It also follows the lecture emphasis on relevance, faithfulness, and context grounding in RAG evaluation.
+The evaluation follows the project requirement to compare text-only and graph-augmented RAG systems using two evaluation approaches: 
 
+- **a custom LLM judge**
+- **RAGAS**
 
+The **custom LLM judge**,  evaluates generated answers using a project-specific rubric focused on answer relevance, faithfulness, and context grounding. This method is useful because it reflects the specific goals of the project and allows the systems to be judged according to criteria that matter most for this study.
+
+The second - **RAGAS**, is a more standardized evaluation framework for RAG systems, which provides established metrics such as faithfulness, answer relevancy, and answer correctness.
+
+Using both approaches makes the evaluation stronger: the custom judge offers a flexible and context-sensitive assessment, while RAGAS provides a more formal external benchmark.
+
+> We have seen the project as an opportunity to test and also better understand how different evaluation methodologies capture different aspects of RAG quality and when each is most informative.
 
 ## Setup
 
 ```{python}
 #| label: imports
 #| eval: true
+#| echo: false
+#| warning: false
 #| code-summary: "Show imports"
 
 import json
@@ -46,6 +57,10 @@ from langchain_core.runnables import (
     RunnablePassthrough,
 )
 
+from pathlib import Path
+import warnings
+from dotenv import load_dotenv
+
 load_dotenv()
 warnings.filterwarnings("ignore")
 
@@ -56,16 +71,35 @@ EVAL_DIR = STAGE3_DIR / "evaluation"
 ARTIFACTS_DIR = EVAL_DIR / "artifacts"
 FIG_DIR = EVAL_DIR / "figures"
 RAW_DIR = EVAL_DIR / "raw"
+RAGAS_DIR = EVAL_DIR / "ragas"
 
-for d in [EVAL_DIR, ARTIFACTS_DIR, FIG_DIR, RAW_DIR]:
+for d in [EVAL_DIR, ARTIFACTS_DIR, FIG_DIR, RAW_DIR, RAGAS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 CONFIG_A_DIR = ARTIFACTS_DIR / "config_a"
 CONFIG_B_DIR = ARTIFACTS_DIR / "config_b"
 CONFIG_C_DIR = ARTIFACTS_DIR / "config_c"
+
+# Common evaluation file paths
+BENCHMARK_QUESTIONS_PATH = EVAL_DIR / "benchmark_questions.csv"
+EVALUATION_RESULTS_PATH = EVAL_DIR / "evaluation_results.csv"
+EVALUATION_SUMMARY_PATH = EVAL_DIR / "evaluation_summary.csv"
+
+# Raw benchmark outputs
+RAW_OUTPUTS_PATH = RAW_DIR / "benchmark_raw_outputs.csv"
+
+# RAGAS file paths
+RAGAS_RESULTS_PATH = RAGAS_DIR / "ragas_results.csv"
+RAGAS_SUMMARY_PATH = RAGAS_DIR / "ragas_summary.csv"
+
+# print("REPO_ROOT:", REPO_ROOT)
+# print("EVAL_DIR:", EVAL_DIR)
+# print("EVALUATION_RESULTS_PATH:", EVALUATION_RESULTS_PATH)
+# print("RAW_OUTPUTS_PATH:", RAW_OUTPUTS_PATH)
+# print("RAGAS_RESULTS_PATH:", RAGAS_RESULTS_PATH)
 ```
 
-## Load Saved Artifacts
+### Load Saved Artifacts
 
 Chapters 3–5 each saved a small manifest and, for graph-based configurations, a serialized graph object.
 Instead of rerunning the whole pipeline we will be loading the files. Below you can find the files that we will be loading for an easier reproductibilty.
@@ -104,7 +138,7 @@ print("Config B:", config_b_manifest["config_name"])
 print("Config C:", config_c_manifest["config_name"])
 ```
 
-## Load Evaluation Input
+### Load Evaluation Input
 
 We use the reviewed Q&A dataset.
 
@@ -128,7 +162,7 @@ print("Columns:", qa_df.columns.tolist())
 display(qa_df.head(3))
 ```
 
-## Build the Benchmark Table
+### Build the Benchmark Table
 
 The **benchmark annotation sheet** is created from the Q&A pairs already generated in Chapter 2.
 
@@ -271,7 +305,7 @@ def docs_to_sources(docs):
     ]
 ```
 
-## Rebuild Config A (Text-Only Baseline)
+### Rebuild Config A (Text-Only Baseline)
 
 Config A is the cleanest pipeline. It retrieves top-k chunks from ChromaDB, deduplicates by URL, and prompts the LLM with only the text context.
 
@@ -312,7 +346,7 @@ rag_chain_a = RunnableParallel(
 print("Config A ready.")
 ```
 
-## Rebuild Config B (Provided Knowledge Graph)
+### Rebuild Config B (Provided Knowledge Graph)
 
 Config B enriches the retriever context with entity-centric information from the provided graph. The original notebook used exact token matching on graph node names, so we preserve that logic here for consistency.
 
@@ -459,7 +493,7 @@ rag_chain_b = (
 print("Config B ready.")
 ```
 
-## Rebuild Config C (Stage 1 Knowledge Graph)
+### Rebuild Config C (Stage 1 Knowledge Graph)
 
 Config C uses the graph constructed from Stage 1 entity and relationship extraction. Unlike Config B, this graph is more relational and less descriptive, so the KG context focuses on nodes, outgoing relationships, and shortest paths.
 
@@ -663,7 +697,7 @@ rag_chain_c = (
 print("Config C ready.")
 ```
 
-## Unified Evaluation Wrappers
+### Unified Evaluation Wrappers
 
 The three pipelines return the same structures, the final answer string. These wrappers standardize the output for evaluation.
 
@@ -704,7 +738,7 @@ def run_config_c(question: str) -> dict:
     }
 ```
 
-## Test Run
+### Test Run
 
 Before launching the full benchmark, we test one question through all three pipelines.
 
@@ -732,7 +766,7 @@ We now evaluate all benchmark questions on the three configurations and save the
 
 ```{python}
 #| label: run-benchmark
-#| eval: true
+#| eval: false
 #| code-summary: "Run all benchmark questions through all three configurations"
 #| echo: false
 
@@ -805,7 +839,7 @@ Each score ranges from 1 to 5. The judge also returns a short rationale.
 
 ```{python}
 #| label: judge-setup
-#| eval: true
+#| eval: false
 #| code-summary: "Define the evaluation prompt for the LLM judge"
 
 judge_prompt = ChatPromptTemplate.from_template("""
@@ -837,7 +871,7 @@ judge_chain = judge_prompt | llm | StrOutputParser()
 
 ```{python}
 #| label: llm-judge
-#| eval: true
+#| eval: false
 #| code-summary: "Score each benchmark output with the LLM judge"
 
 EVALUATION_RESULTS_PATH = EVAL_DIR / "evaluation_results.csv"
@@ -901,7 +935,7 @@ print(f"Saved scored evaluation to: {EVALUATION_RESULTS_PATH}")
 eval_df.head(6)
 ```
 
-## Summary Tables
+### Summary Tables
 
 We aggregate the evaluation scores by configuration and by question type.
 
@@ -909,10 +943,8 @@ We aggregate the evaluation scores by configuration and by question type.
 #| label: summary-by-config
 #| eval: true
 #| code-summary: "Aggregate scores by configuration"
+SUMMARY_PATH = EVALUATION_SUMMARY_PATH
 
-SUMMARY_PATH = EVAL_DIR / "evaluation_summary.csv"
-
-# Load scored eval results (cast score columns to numeric to be safe)
 _eval = pd.read_csv(EVALUATION_RESULTS_PATH)
 for _col in ["answer_relevance", "faithfulness", "context_grounding"]:
     _eval[_col] = pd.to_numeric(_eval[_col], errors="coerce")
@@ -929,16 +961,15 @@ summary_by_config = (
 )
 
 summary_by_config["overall_mean"] = (
-    summary_by_config[[
-        "avg_answer_relevance",
-        "avg_faithfulness",
-        "avg_context_grounding",
-    ]].mean(axis=1)
+    summary_by_config[
+        ["avg_answer_relevance", "avg_faithfulness", "avg_context_grounding"]
+    ].mean(axis=1)
 )
 
 summary_by_config = summary_by_config.round(2)
 summary_by_config.to_csv(SUMMARY_PATH, index=False)
 summary_by_config
+
 ```
 
 ```{python}
@@ -962,7 +993,7 @@ summary_by_type
 
 
 
-## Visual Comparison
+### Visual Comparison
 
 ```{python}
 #| label: plot-results
@@ -999,7 +1030,15 @@ print(f"Saved figure to: {fig_path}")
 ```
 
 
-## Interpretation
+### Evaluation Strategy
+
+This chapter uses **two complementary evaluation approaches** to assess the three Stage 3 RAG configurations. The first approach is a **custom LLM judge**, which scores each answer on answer relevance, faithfulness, and context grounding using a project-specific rubric on a 1–5 scale. This gives a flexible, explainable view of how well the systems behave under criteria aligned with the goals of the project.
+
+The second approach is **RAGAS**, a standardised RAG evaluation framework. RAGAS provides an external lens with established metrics such as faithfulness, answer relevancy, and answer correctness. Using both methods strengthens the evaluation design: the custom judge captures project-specific quality criteria, while RAGAS provides a more standardised benchmark that helps check whether the findings remain consistent under a different scoring framework.
+
+The two methods are therefore not redundant. They answer slightly different questions and are best read together. If both methods broadly point in the same direction, confidence in the conclusions increases. If they diverge, the difference itself becomes analytically useful because it shows how sensitive the results are to the evaluation framework.
+
+### Custom LLM Judge Evaluation
 
 The evaluation scores paint a clear and consistent picture: all three configurations perform poorly across every dimension, with average scores clustering between 1.2 and 1.8 on a 1–5 scale. This is not a marginal underperformance — it indicates that none of the systems are reliably grounding their answers in the retrieved evidence or responding in a way that the judge considers directly relevant to the question.
 
@@ -1013,10 +1052,365 @@ Across question types, the pattern holds without exception. **Factual** question
 
 The underlying cause across all three systems is likely the same: **the retrieval step is not surfacing evidence that is close enough to the question for the LLM to produce a grounded, relevant answer**. The vector store retrieves semantically similar chunks, but semantic similarity at the embedding level does not guarantee that the content directly answers the question. Without a filtering or re-ranking step, irrelevant or tangentially related passages reach the prompt and lower faithfulness and context grounding scores. The KG context compounds this problem when the matched nodes are off-topic, since the prompt becomes longer and less focused without becoming more informative.
 
-## Conclusion
 
-This chapter built and executed a complete evaluation framework for the three RAG configurations produced in Stage 3. The benchmark covered 30 questions per configuration across factual, analytical, and comparative question types, and an LLM judge scored each response on answer relevance, faithfulness, and context grounding. The results are clear and consistent: all three systems perform poorly, with average scores below 1.7 on a 1–5 scale, and no configuration demonstrates reliable grounding in the retrieved evidence.
 
-The text-only baseline (Config A) achieved the best results overall, which is a significant finding. It means that the current graph integration strategy — for both the provided knowledge graph and the Stage 1 graph — is not yet contributing positively to answer quality. The additional context introduced by the knowledge graphs appears to dilute rather than improve the prompt, likely because the token-matching retrieval is too imprecise and the graph context passed to the LLM is not sufficiently filtered or focused on the question. Config C in particular suffers from this, as its relational graph structure produces contextually thin edge and path descriptions that the judge consistently scores as poorly grounded.
+## RAGAS 
 
-These results do not indicate a broken pipeline — all configurations generate fluent answers and complete the benchmark without errors. What they reveal is a **retrieval quality bottleneck**: the systems are retrieving and passing content to the LLM, but not the right content, and not in a form that enables well-grounded generation. This is consistent with the lecture emphasis on the importance of evidence selection and prioritisation in RAG systems, and it directly motivates the enhancement explored in the next chapter. Introducing **re-ranking** before generation is a natural and well-motivated next step: by filtering retrieved chunks down to those most relevant to the specific question, re-ranking can reduce context noise and give the LLM a better basis for producing faithful, relevant, and grounded answers.
+
+This second chapter introduces **RAGAS** as a complementary evaluation layer. The purpose is not to replace the custom LLM judge, but to validate the Stage 3 findings with a more standardised RAG evaluation framework. Because the benchmark responses were already generated and saved locally, this chapter reuses those saved outputs and, where needed, reconstructs the contexts locally rather than rerunning the full generation workflow.
+
+This design keeps the original evaluation reproducible while adding a second perspective. In practical terms, the custom LLM judge measures answer quality against a project-specific rubric, whereas RAGAS evaluates the same systems through a standard RAG lens. The combination supports a richer final interpretation: one chapter explains performance through tailored judging criteria, and the second checks whether that picture still holds under a more formal external framework.
+
+```{python}
+#| label: ragas-paths
+#| eval: true
+#| code-summary: "Define file locations for RAGAS outputs"
+
+RAGAS_DIR = EVAL_DIR / "ragas"
+RAGAS_RESULTS_PATH = RAGAS_DIR / "ragas_results.csv"
+RAGAS_SUMMARY_PATH = RAGAS_DIR / "ragas_summary_by_config.csv"
+RAGAS_TYPE_SUMMARY_PATH = RAGAS_DIR / "ragas_summary_by_type.csv"
+RAGAS_COMPARISON_FIG_PATH = FIG_DIR / "custom_vs_ragas_comparison.png"
+
+RAGAS_DIR.mkdir(parents=True, exist_ok=True)
+
+# print("RAGAS directory:", RAGAS_DIR)
+```
+
+### Build the RAGAS Dataset from Saved Outputs
+
+The original benchmark outputs do not store the retrieved document contexts explicitly. To avoid changing the original benchmark code, we reconstruct those contexts locally from the saved retrievers and graph lookup functions, while reusing the already saved generated answers from disk.
+
+```{python}
+#| label: ragas-setup
+#| eval: true
+#| code-summary: "Import RAGAS and load the saved benchmark outputs"
+
+from datasets import Dataset
+from ragas import RunConfig, evaluate
+from ragas.metrics import answer_correctness, answer_relevancy, faithfulness, context_precision
+
+RAW_OUTPUTS_PATH = RAW_DIR / "benchmark_raw_outputs.csv"
+
+if not RAW_OUTPUTS_PATH.exists():
+    raise FileNotFoundError(f"Saved benchmark outputs not found: {RAW_OUTPUTS_PATH}")
+
+saved_raw_outputs_df = pd.read_csv(RAW_OUTPUTS_PATH)
+ragas_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+```
+
+```{python}
+#| label: ragas-context-rebuild
+#| eval: true
+#| code-summary: "Reconstruct retrieved contexts locally without regenerating answers"
+
+def get_ragas_contexts(question: str, config_name: str) -> list[str]:
+    if config_name == "config_a_text_only":
+        docs = deduplicate_by_url(retriever_a.invoke(question))
+        return [doc.page_content for doc in docs]
+
+    if config_name == "config_b_provided_kg":
+        docs = deduplicate_by_url(retriever_b.invoke(question))
+        contexts = [doc.page_content for doc in docs]
+        kg_context = retrieve_kg_context_b(question, config_b_graph)
+        if str(kg_context).strip():
+            contexts.append(kg_context)
+        return contexts
+
+    if config_name == "config_c_stage1_kg":
+        docs = deduplicate_by_url(retriever_c.invoke(question))
+        contexts = [doc.page_content for doc in docs]
+        kg_context = retrieve_kg_context_c(question, config_c_graph)
+        if str(kg_context).strip():
+            contexts.append(kg_context)
+        return contexts
+
+    return []
+
+
+def build_ragas_dataset(config_name: str) -> Dataset:
+    subset = saved_raw_outputs_df[saved_raw_outputs_df["config"] == config_name].copy()
+    subset["contexts"] = subset["Question"].apply(lambda q: get_ragas_contexts(q, config_name))
+
+    datapoints = {
+        "question": subset["Question"].tolist(),
+        "answer": subset["Generated_Answer"].tolist(),
+        "contexts": subset["contexts"].tolist(),
+        "ground_truth": subset["Reference_Answer"].tolist(),
+        "config": subset["config"].tolist(),
+        "Question_Type": subset["Question_Type"].tolist(),
+        "id": subset["id"].tolist(),
+    }
+    return Dataset.from_dict(datapoints)
+```
+
+### Run RAGAS
+
+```{python}
+#| label: run-ragas
+#| eval: false
+#| code-summary: "Run RAGAS on the saved benchmark outputs"
+
+ragas_frames = []
+
+for config_name in [
+    "config_a_text_only",
+    "config_b_provided_kg",
+    "config_c_stage1_kg",
+]:
+    dataset = build_ragas_dataset(config_name)
+    ragas_result = evaluate(
+    dataset,
+    metrics=[
+        faithfulness,
+        answer_relevancy,
+        answer_correctness,
+    ],
+    llm=ragas_llm,
+    run_config=RunConfig(timeout=180, max_workers=4),
+)
+
+    frame = ragas_result.to_pandas()
+    frame["config"] = dataset["config"]
+    frame["Question_Type"] = dataset["Question_Type"]
+    frame["id"] = dataset["id"]
+    frame["Question"] = dataset["question"]
+    ragas_frames.append(frame)
+
+ragas_eval_df = pd.concat(ragas_frames, ignore_index=True)
+ragas_eval_df.to_csv(RAGAS_RESULTS_PATH, index=False)
+
+print(f"Saved RAGAS results to: {RAGAS_RESULTS_PATH}")
+ragas_eval_df.head()
+```
+
+
+### Load Saved RAGAS Results
+
+```{python}
+#| label: load-ragas-results
+#| eval: true
+
+if RAGAS_RESULTS_PATH.exists():
+    ragas_eval_df = pd.read_csv(RAGAS_RESULTS_PATH)
+    print(f"Loaded RAGAS results from: {RAGAS_RESULTS_PATH}")
+    ragas_eval_df.head()
+else:
+    print(f"No saved RAGAS results found at: {RAGAS_RESULTS_PATH}")
+```
+
+
+
+### RAGAS Evaluation
+
+**Full RAGAS results table**
+
+```{python}
+
+#| label: ragas-full-results
+#| eval: true
+
+if RAGAS_RESULTS_PATH.exists():
+    ragas_eval_df = pd.read_csv(RAGAS_RESULTS_PATH)
+
+    display_cols = [
+        "config",
+        "id",
+        "Question_Type",
+        "Question",
+        "faithfulness",
+        "answer_relevancy",
+        "answer_correctness",
+    ]
+
+    existing_cols = [c for c in display_cols if c in ragas_eval_df.columns]
+    display(ragas_eval_df[existing_cols].round(3))
+else:
+    print("No saved RAGAS results found yet.")
+
+```
+
+
+**RAGAS results by configuration**
+
+```{python}
+#| label: ragas-by-config
+#| eval: true
+
+if RAGAS_RESULTS_PATH.exists():
+    ragas_eval_df = pd.read_csv(RAGAS_RESULTS_PATH)
+
+    ragas_summary_by_config = (
+        ragas_eval_df.groupby("config", as_index=False)
+        .agg(
+            n_questions=("id", "count"),
+            avg_faithfulness=("faithfulness", "mean"),
+            avg_answer_relevancy=("answer_relevancy", "mean"),
+            avg_answer_correctness=("answer_correctness", "mean"),
+        )
+        .round(3)
+    )
+
+    ragas_summary_by_config["overall_mean"] = (
+        ragas_summary_by_config[
+            ["avg_faithfulness", "avg_answer_relevancy", "avg_answer_correctness"]
+        ].mean(axis=1).round(3)
+    )
+
+    display(ragas_summary_by_config)
+else:
+    print("No saved RAGAS results found yet.")
+
+```
+
+**RAGAS results by question type**
+
+```{python}
+#| label: ragas-by-question-type
+#| eval: true
+
+if RAGAS_RESULTS_PATH.exists():
+    ragas_eval_df = pd.read_csv(RAGAS_RESULTS_PATH)
+
+    ragas_summary_by_type = (
+        ragas_eval_df.groupby("Question_Type", as_index=False)
+        .agg(
+            n_questions=("id", "count"),
+            avg_faithfulness=("faithfulness", "mean"),
+            avg_answer_relevancy=("answer_relevancy", "mean"),
+            avg_answer_correctness=("answer_correctness", "mean"),
+        )
+        .round(3)
+    )
+
+    ragas_summary_by_type["overall_mean"] = (
+        ragas_summary_by_type[
+            ["avg_faithfulness", "avg_answer_relevancy", "avg_answer_correctness"]
+        ].mean(axis=1).round(3)
+    )
+
+    display(ragas_summary_by_type)
+else:
+    print("No saved RAGAS results found yet.")
+```
+
+
+  
+At the configuration level, the results show that Config A (text-only baseline) achieved the highest overall RAGAS score (0.444), followed very closely by Config B (provided knowledge graph) with 0.441, while Config C (Stage 1 knowledge graph) obtained the lowest overall score (0.404). The gap between Config A and Config B is very small, which suggests that the addition of the provided knowledge graph did not substantially improve answer quality over the text-only baseline in this benchmark. By contrast, Config C performed noticeably worse overall, indicating that the Stage 1 knowledge graph integration did not translate into stronger answer performance.
+
+A closer look at the individual metrics reveals a more nuanced pattern. Faithfulness was relatively high for all three configurations, with Config C even achieving the highest score (0.730), followed by Config A (0.700) and Config B (0.686). This indicates that, in general, the generated answers remained reasonably grounded in the retrieved context. In other words, the systems were often able to stay consistent with the evidence they were given.
+
+However, the weaker dimension across all configurations was answer relevancy. Config A and Config B produced similarly low relevancy scores (0.265 and 0.261 respectively), while Config C dropped substantially lower (0.162). This suggests that although the answers were often grounded in retrieved material, they did not always address the user’s question directly or completely. A similar pattern can be seen in answer correctness, where Config B achieved the highest score (0.375), slightly above Config A (0.367), while Config C again performed worst (0.320). Taken together, these findings indicate that retrieval grounding is not the main weakness of the systems; rather, the larger limitation lies in producing answers that are both precise and fully relevant to the question being asked.
+
+The analysis by question type provides further insight. Analytical questions achieved the highest overall mean (0.474), with comparatively stronger answer relevancy (0.427) and correctness (0.428). This suggests that the RAG pipeline handles broader interpretive or synthesis-oriented questions better than narrow fact retrieval. In contrast, factual and comparative questions produced lower overall scores (0.412 and 0.403 respectively). Although both of these categories maintained relatively high faithfulness (0.768 for factual and 0.781 for comparative), their answer relevancy scores were especially weak (0.133 and 0.128). This means that the models often stayed close to the retrieved material, but still struggled to formulate responses that directly matched the informational need of the question.
+
+
+## Compare Custom Judge and RAGAS
+
+```{python}
+#| label: ragas-comparison
+#| eval: true
+#| code-summary: "Compare the original custom judge with RAGAS on aligned metrics"
+
+if RAGAS_RESULTS_PATH.exists():
+    ragas_eval_df = pd.read_csv(RAGAS_RESULTS_PATH)
+
+    ragas_summary_by_config = (
+        ragas_eval_df.groupby("config", as_index=False)
+        .agg(
+            avg_faithfulness=("faithfulness", "mean"),
+            avg_answer_relevancy=("answer_relevancy", "mean"),
+            avg_answer_correctness=("answer_correctness", "mean"),
+        )
+        .round(3)
+    )
+
+    custom_for_compare = summary_by_config.copy()
+    custom_for_compare["framework"] = "custom_llm_judge"
+    custom_for_compare["answer_metric"] = custom_for_compare["avg_answer_relevance"] / 5.0
+    custom_for_compare["faithfulness_metric"] = custom_for_compare["avg_faithfulness"] / 5.0
+    custom_for_compare["context_metric"] = custom_for_compare["avg_context_grounding"] / 5.0
+    custom_for_compare["overall_metric"] = custom_for_compare[
+        ["answer_metric", "faithfulness_metric", "context_metric"]
+    ].mean(axis=1)
+
+    ragas_for_compare = ragas_summary_by_config.copy()
+    ragas_for_compare["framework"] = "ragas"
+    ragas_for_compare["answer_metric"] = ragas_for_compare["avg_answer_relevancy"]
+    ragas_for_compare["faithfulness_metric"] = ragas_for_compare["avg_faithfulness"]
+
+    # no context_relevancy in your current RAGAS setup
+    ragas_for_compare["context_metric"] = pd.NA
+
+    ragas_for_compare["overall_metric"] = ragas_for_compare[
+        ["answer_metric", "faithfulness_metric"]
+    ].mean(axis=1)
+
+    framework_comparison = pd.concat([
+        custom_for_compare[
+            ["config", "framework", "answer_metric", "faithfulness_metric", "context_metric", "overall_metric"]
+        ],
+        ragas_for_compare[
+            ["config", "framework", "answer_metric", "faithfulness_metric", "context_metric", "overall_metric"]
+        ],
+    ], ignore_index=True).round(3)
+
+    display(framework_comparison)
+else:
+    framework_comparison = pd.DataFrame()
+    print("Framework comparison will appear here after saved RAGAS results are available.")
+```
+
+> *Reason for the NA* - We originally tried to include the older RAGAS context metric, but it was no longer supported in the current package version. Using an older version caused compatibility problems with the rest of the pipeline, so we kept the stable setup and continued with the supported RAGAS metrics.
+
+```{python}
+#| label: ragas-comparison-plot
+#| eval: true
+#| code-summary: "Plot the custom judge and RAGAS comparison"
+if (RAGAS_RESULTS_PATH.exists()) and (not framework_comparison.empty):
+    import matplotlib.pyplot as plt
+
+    plot_df = framework_comparison.pivot(
+        index="config",
+        columns="framework",
+        values="overall_metric",
+    )
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    plot_df.plot(kind="bar", ax=ax)
+    ax.set_title("Custom Judge vs. RAGAS")
+    ax.set_ylabel("Normalised Overall Score (0-1)")
+    ax.set_xlabel("Configuration")
+    ax.set_ylim(0, 1)
+    ax.grid(axis="y", linestyle="--", alpha=0.5)
+    plt.xticks(rotation=20, ha="right")
+    plt.tight_layout()
+
+    plt.savefig(RAGAS_COMPARISON_FIG_PATH, dpi=300, bbox_inches="tight")
+    plt.show()
+
+#     print(f"Saved figure to: {RAGAS_COMPARISON_FIG_PATH}")
+# else:
+#     print("Comparison plot will appear after both frameworks have produced saved results.")
+```
+
+
+
+
+Comparing the two evaluation approaches shows a broadly consistent pattern, while also highlighting important differences in emphasis. 
+
+Both the **custom LLM judge** and **RAGAS** identify *Config* A and *Config B* as the strongest-performing systems, with only a small gap between them, while *Config C* performs worst overall. This agreement strengthens confidence in the general conclusion that the text-only baseline and the provided knowledge graph configuration are more effective than the Stage 1 knowledge graph configuration on this benchmark.
+
+At the same time, the two methods assess answer quality from slightly different perspectives:
+
+- The **custom LLM **judge uses a project-specific rubric based on answer relevance, faithfulness, and context grounding, scored on a 1–5 scale and then normalized for comparison. This makes it useful for reflecting the evaluation priorities of the project itself. 
+- **RAGAS**, by contrast, applies a more standardized RAG-oriented framework based on faithfulness, answer relevancy, and answer correctness. As a result, it provides a more formalized benchmark of how well the generated answers align with retrieved evidence and reference answers.
+
+The comparison also reveals a meaningful difference in how the two methods interpret system quality:
+
+- In the **custom LLM** judge results, overall scores are relatively low and close together, suggesting that all three systems still have room for improvement across the chosen criteria.
+- In the **RAGAS** results, faithfulness is notably stronger than the other dimensions, especially for Config C. This indicates that the systems are often well grounded in retrieved evidence, but still struggle to produce answers that are sufficiently relevant and correct. In other words, the custom judge emphasizes overall practical usefulness, while RAGAS makes it easier to separate grounding from answer quality.
+
+Taken together, the two frameworks are complementary rather than contradictory. The custom LLM judge is valuable because it captures the project’s own evaluation priorities and provides a flexible, human-aligned scoring perspective. RAGAS adds a standardized layer that is specifically designed for RAG systems and helps distinguish whether weaknesses come from poor grounding or from poor answer formulation. 
+
+Since both methods point to the same general ranking of configurations, the combined evaluation provides stronger evidence that Config A and Config B are the most reliable choices, while Config C requires further refinement before it can be considered competitive.
