@@ -4,7 +4,8 @@ execute:
   eval: false
 ---
 
-This chapter constructs the evaluation dataset used across all RAG configurations in Chapters 3–5. We select 80 representative passages from the AI Media Dataset using tag-based stratified sampling, generate 240 Q&A pairs using GPT-4o, and categorise them into three types: factual, analytical, and comparative. The resulting dataset is used in Chapter 6 to evaluate and compare the three RAG configurations using an LLM-judge evaluation framework.
+This chapter constructs the evaluation dataset used across all RAG configurations in Chapters 3–5. We select 80 representative passages from the AI Media Dataset using tag-based stratified sampling, generate 240 Q&A pairs using GPT-4o, and categorise them into three types: factual, analytical, and comparative. The resulting dataset is used in Chapter 6 to evaluate and compare the three RAG configurations using both a custom LLM-judge evaluation framework and RAGAS.
+
 
 ## Setup
 
