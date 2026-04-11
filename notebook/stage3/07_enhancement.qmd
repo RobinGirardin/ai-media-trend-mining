@@ -30,7 +30,7 @@ The same benchmark, scoring dimensions, and output structure from Chapter 6 are 
 ```{python}
 #| label: imports
 #| eval: false
-#| code-summary: "Show imports"
+#| code-summary: "Import libraries and resolve core paths"
 #| message: false
 #| warning: false
 
@@ -39,21 +39,19 @@ import re
 import warnings
 from pathlib import Path
 
+import chromadb
 import matplotlib.pyplot as plt
 import pandas as pd
 from dotenv import load_dotenv
 
-import chromadb
-
-from langchain_openai import ChatOpenAI
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_openai import ChatOpenAI
 
 load_dotenv()
 warnings.filterwarnings("ignore")
-
 
 REPO_ROOT = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
 STAGE3_DIR = REPO_ROOT / "data" / "processed" / "stage3"
@@ -61,7 +59,11 @@ EVAL_DIR = STAGE3_DIR / "evaluation"
 ARTIFACTS_DIR = EVAL_DIR / "artifacts"
 CONFIG_A_DIR = ARTIFACTS_DIR / "config_a"
 
-with open(CONFIG_A_DIR / "manifest.json", "r", encoding="utf-8") as f:
+MANIFEST_PATH = CONFIG_A_DIR / "manifest.json"
+if not MANIFEST_PATH.exists():
+    raise FileNotFoundError(f"Missing Config A manifest: {MANIFEST_PATH}")
+
+with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
     config_a_manifest = json.load(f)
 ```
 
@@ -70,29 +72,49 @@ with open(CONFIG_A_DIR / "manifest.json", "r", encoding="utf-8") as f:
 We reuse the saved baseline artifacts and the benchmark generated in Chapter 6. This keeps the workflow reproducible and avoids rerunning the full Stage 3 pipeline.
 
 ```{python}
-#| label: enhancement-paths-and-loads
+#| label: enhancement-paths
 #| eval: false
-#| code-summary: "Create enhancement folders and load benchmark and Chapter 6 results"
+#| code-summary: "Define reranking artifact paths"
 
-ENH_DIR = EVAL_DIR / "enhancement"
+ENH_DIR = EVAL_DIR / "enhancement_reranking"
 ENH_RAW_DIR = ENH_DIR / "raw"
 ENH_FIG_DIR = ENH_DIR / "figures"
 
-for d in [ENH_DIR, ENH_RAW_DIR, ENH_FIG_DIR]:
-    d.mkdir(parents=True, exist_ok=True)
+for path in [ENH_DIR, ENH_RAW_DIR, ENH_FIG_DIR]:
+    path.mkdir(parents=True, exist_ok=True)
 
 BENCHMARK_PATH = EVAL_DIR / "benchmark_questions.csv"
 BASELINE_RESULTS_PATH = EVAL_DIR / "evaluation_results.csv"
 BASELINE_SUMMARY_PATH = EVAL_DIR / "evaluation_summary.csv"
 
-if not BENCHMARK_PATH.exists():
-    raise FileNotFoundError(f"Benchmark file not found: {BENCHMARK_PATH}")
-if not BASELINE_RESULTS_PATH.exists():
-    raise FileNotFoundError(f"Baseline results file not found: {BASELINE_RESULTS_PATH}")
+RERANKED_RAW_PATH = ENH_RAW_DIR / "benchmark_raw_outputs_reranked.csv"
+RERANKED_SCORED_PATH = ENH_DIR / "evaluation_results_reranked.csv"
+COMPARISON_PATH = ENH_DIR / "enhancement_comparison.csv"
+TYPE_COMPARISON_PATH = ENH_DIR / "enhancement_comparison_by_type.csv"
+FIG_PATH = ENH_FIG_DIR / "baseline_vs_reranked_overall_mean.png"
+
+```
+
+```{python}
+#| label: load-benchmark-and-baseline
+#| eval: false
+#| code-summary: "Load benchmark and baseline outputs"
+
+required_inputs = [
+    BENCHMARK_PATH,
+    BASELINE_RESULTS_PATH,
+    BASELINE_SUMMARY_PATH,
+]
+
+missing_inputs = [str(path) for path in required_inputs if not path.exists()]
+if missing_inputs:
+    raise FileNotFoundError(
+        "Missing required input file(s):\n- " + "\n- ".join(missing_inputs)
+    )
 
 benchmark_df = pd.read_csv(BENCHMARK_PATH)
 baseline_results_df = pd.read_csv(BASELINE_RESULTS_PATH)
-
+baseline_summary_df = pd.read_csv(BASELINE_SUMMARY_PATH)
 
 benchmark_df.head(5)
 ```
@@ -102,20 +124,25 @@ benchmark_df.head(5)
 ```{python}
 #| label: ensure-question-types
 #| eval: false
-#| code-summary: "Ensure the benchmark contains Question_Type labels"
+#| code-summary: "Ensure benchmark contains Question_Type labels"
 
 if "Question_Type" not in benchmark_df.columns:
     qa_reviewed_path = STAGE3_DIR / "qa_dataset_reviewed.csv"
+
     if not qa_reviewed_path.exists():
-        raise KeyError(
-            "benchmark_questions.csv does not contain 'Question_Type' and qa_dataset_reviewed.csv was not found."
+        raise FileNotFoundError(
+            "benchmark_questions.csv does not contain 'Question_Type' and "
+            f"qa_dataset_reviewed.csv was not found at: {qa_reviewed_path}"
         )
 
     qa_reviewed_df = pd.read_csv(qa_reviewed_path)
     qa_reviewed_df.columns = qa_reviewed_df.columns.str.strip()
 
-    if not {"question", "type"}.issubset(qa_reviewed_df.columns):
-        raise KeyError("qa_dataset_reviewed.csv must contain 'question' and 'type'.")
+    required_cols = {"question", "type"}
+    if not required_cols.issubset(qa_reviewed_df.columns):
+        raise KeyError(
+            "qa_dataset_reviewed.csv must contain columns: 'question' and 'type'."
+        )
 
     benchmark_df = benchmark_df.merge(
         qa_reviewed_df[["question", "type"]].rename(
@@ -124,6 +151,9 @@ if "Question_Type" not in benchmark_df.columns:
         on="Question",
         how="left",
     )
+
+if "Question_Type" not in benchmark_df.columns:
+    raise KeyError("Question_Type is still missing after merge.")
 
 print("Benchmark columns:", benchmark_df.columns.tolist())
 print(benchmark_df["Question_Type"].value_counts(dropna=False))
@@ -146,7 +176,7 @@ This chapter uses a lightweight cross-encoder reranker because it is practical, 
 ```{python}
 #| label: reranker-setup
 #| eval: false
-#| code-summary: "Load embeddings, vector store, baseline LLM, and the reranker"
+#| code-summary: "Load embeddings, vector store, LLM, and cross-encoder reranker"
 
 from sentence_transformers import CrossEncoder
 
@@ -164,18 +194,15 @@ store = Chroma(
     embedding_function=embedding_model,
 )
 
-# Baseline retriever (same as Config A)
 retriever_a = store.as_retriever(
     search_kwargs={"k": config_a_manifest.get("top_k", 8)}
 )
 
-# Retrieve more candidates than in the baseline, then re-rank.
 candidate_retriever = store.as_retriever(
     search_type="similarity",
     search_kwargs={"k": 12},
 )
 
-# Lightweight cross-encoder reranker
 reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 print("Baseline retriever and reranker are ready.")
@@ -184,27 +211,29 @@ print("Baseline retriever and reranker are ready.")
 ```{python}
 #| label: reranker-helpers
 #| eval: false
-#| code-summary: "Define helper functions for reranking, formatting, and metadata extraction"
+#| code-summary: "Define helper functions for reranking and metadata extraction"
 
 def deduplicate_by_url(docs, max_per_url: int = 1):
     seen = {}
-    result = []
+    unique_docs = []
+
     for doc in docs:
         url = doc.metadata.get("url", "")
         seen[url] = seen.get(url, 0) + 1
         if seen[url] <= max_per_url:
-            result.append(doc)
-    return result
+            unique_docs.append(doc)
+
+    return unique_docs
 
 
 def rerank_documents(question: str, docs, top_n: int = 5):
-    if len(docs) == 0:
+    if not docs:
         return []
 
     pairs = [(question, doc.page_content) for doc in docs]
     scores = reranker.predict(pairs)
-
     ranked = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
+
     return [doc for doc, _ in ranked[:top_n]]
 
 
@@ -239,7 +268,7 @@ The prompt remains intentionally close to the baseline from Chapter 6. The only 
 ```{python}
 #| label: enhanced-rag-pipeline
 #| eval: false
-#| code-summary: "Build the reranked text-only generation chain"
+#| code-summary: "Build the reranked generation chain"
 
 reranked_template = """You are an assistant for question-answering tasks about AI trends.
 Use the following retrieved context to answer the question.
@@ -262,7 +291,6 @@ reranked_generation_chain = (
     | StrOutputParser()
 )
 
-
 ```
 
 ## Run the Same Benchmark
@@ -272,53 +300,59 @@ The reranked system is evaluated on the exact same benchmark used in Chapter 6.
 ```{python}
 #| label: run-reranked-benchmark
 #| eval: false
-#| code-summary: "Run the reranked system on the shared benchmark"
+#| code-summary: "Run reranked retrieval and save raw outputs"
 
-RERANKED_RAW_PATH = ENH_RAW_DIR / "benchmark_raw_outputs_reranked.csv"
 TOP_K_RERANKED = 5
-
 enhanced_rows = []
 
 for _, row in benchmark_df.iterrows():
     question = row["Question"]
 
-    # 1. Retrieve a wider candidate set
     initial_docs = candidate_retriever.invoke(question)
     initial_docs = deduplicate_by_url(initial_docs, max_per_url=1)
 
-    # 2. Re-rank the candidates
     reranked_docs = rerank_documents(question, initial_docs, top_n=TOP_K_RERANKED)
     final_docs = reranked_docs[:TOP_K_RERANKED]
 
-    # 3. Build the final context
     context = format_docs(final_docs)
 
-    # 4. Generate answer
-    answer = reranked_generation_chain.invoke({
-        "question": question,
-        "context": context
-    })
+    answer = reranked_generation_chain.invoke(
+        {
+            "question": question,
+            "context": context,
+        }
+    )
 
-    enhanced_rows.append({
-        "id": row["id"],
-        "config": "config_a_text_only_reranked",
-        "Question_Type": row.get("Question_Type", None),
-        "Question": question,
-        "Reference_Answer": row["Reference_Answer"],
-        "Relevant_Chunk": row["Relevant_Chunk"],
-        "Generated_Answer": answer if isinstance(answer, str) else str(answer),
-        "Retrieved_Contexts": json.dumps([doc.page_content for doc in final_docs], ensure_ascii=False),
-        "Retrieved_Sources": json.dumps(docs_to_sources(final_docs), ensure_ascii=False),
-        "error_flag": False,
-    })
+    enhanced_rows.append(
+        {
+            "id": row["id"],
+            "config": "config_a_text_only_reranked",
+            "Question_Type": row.get("Question_Type", None),
+            "Question": question,
+            "Reference_Answer": row["Reference_Answer"],
+            "Relevant_Chunk": row["Relevant_Chunk"],
+            "Generated_Answer": answer if isinstance(answer, str) else str(answer),
+            "Retrieved_Contexts": json.dumps(
+                [doc.page_content for doc in final_docs],
+                ensure_ascii=False,
+            ),
+            "Retrieved_Sources": json.dumps(
+                docs_to_sources(final_docs),
+                ensure_ascii=False,
+            ),
+            "error_flag": False,
+        }
+    )
 
 reranked_raw_df = pd.DataFrame(enhanced_rows)
+
+if reranked_raw_df.empty:
+    raise RuntimeError("Reranked benchmark produced no rows.")
+
 reranked_raw_df.to_csv(RERANKED_RAW_PATH, index=False)
 
 print(f"Saved reranked raw outputs to: {RERANKED_RAW_PATH}")
 reranked_raw_df.head(3)
-
-print(reranked_raw_df.columns.tolist())
 
 ```
 
@@ -335,7 +369,7 @@ Each metric is rated on a 1–5 scale by an LLM judge, and the judge returns a s
 ```{python}
 #| label: judge-setup
 #| eval: false
-#| code-summary: "Create the LLM judge used to score reranked outputs"
+#| code-summary: "Create the LLM judge for reranked outputs"
 
 judge_llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
@@ -374,43 +408,52 @@ def parse_json_object(text: str):
     if not match:
         raise ValueError(f"Could not parse JSON from judge response: {text}")
     return json.loads(match.group(0))
+
 ```
 
 ```{python}
 #| label: judge-reranked-outputs
 #| eval: false
-#| code-summary: "Score the reranked outputs with the LLM judge"
-
-RERANKED_SCORED_PATH = ENH_DIR / "evaluation_results_reranked.csv"
+#| code-summary: "Score reranked outputs and save evaluation results"
 
 scored_rows = []
-for _, row in reranked_raw_df.iterrows():
-    retrieved_context = row["Retrieved_Contexts"]
 
+for _, row in reranked_raw_df.iterrows():
     judge_response = judge_llm.invoke(
         judge_prompt.format_messages(
             question=row["Question"],
             reference_answer=row["Reference_Answer"],
-            retrieved_context=retrieved_context,
+            retrieved_context=row["Retrieved_Contexts"],
             generated_answer=row["Generated_Answer"],
         )
     )
+
     parsed = parse_json_object(judge_response.content)
 
-    scored_rows.append({
-        **row.to_dict(),
-        "answer_relevance": parsed["answer_relevance"],
-        "faithfulness": parsed["faithfulness"],
-        "context_grounding": parsed["context_grounding"],
-        "rationale": parsed["rationale"],
-    })
+    scored_rows.append(
+        {
+            **row.to_dict(),
+            "answer_relevance": parsed["answer_relevance"],
+            "faithfulness": parsed["faithfulness"],
+            "context_grounding": parsed["context_grounding"],
+            "rationale": parsed["rationale"],
+        }
+    )
 
 reranked_eval_df = pd.DataFrame(scored_rows)
+
+if reranked_eval_df.empty:
+    raise RuntimeError("Reranked evaluation produced no scored rows.")
+
 reranked_eval_df.to_csv(RERANKED_SCORED_PATH, index=False)
 
 print(f"Saved reranked evaluation results to: {RERANKED_SCORED_PATH}")
-_display_cols = [c for c in reranked_eval_df.columns if c not in ["Retrieved_Contexts", "Retrieved_Sources"]]
-reranked_eval_df[_display_cols].head(3)
+
+display_cols = [
+    c for c in reranked_eval_df.columns
+    if c not in ["Retrieved_Contexts", "Retrieved_Sources"]
+]
+reranked_eval_df[display_cols].head(3)
 ```
 
 ## Load Saved Enhancement Results from Disk
@@ -418,33 +461,24 @@ reranked_eval_df[_display_cols].head(3)
 The following cells are used for normal reruns of the notebook. They keep the full implementation above visible for demonstration purposes, but avoid new embedding, retrieval, reranking, generation, and LLM-judge calls. Instead, the notebook loads the already saved results from disk.
 
 ```{python}
-#| label: load-saved-results-setup
+#| label: load-saved-results
 #| eval: true
-#| code-summary: "Resolve paths and load saved baseline and reranked results from disk"
+#| code-summary: "Load saved benchmark, baseline, and reranked artifacts"
 #| message: false
 #| warning: false
 
-import json
 from pathlib import Path
-
-import matplotlib.pyplot as plt
 import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 
 REPO_ROOT = Path.cwd() if (Path.cwd() / "data").exists() else Path.cwd().parents[1]
 STAGE3_DIR = REPO_ROOT / "data" / "processed" / "stage3"
 EVAL_DIR = STAGE3_DIR / "evaluation"
 
-# Prefer the reranking folder if it exists, otherwise fall back to the original enhancement folder.
-ENH_DIR_CANDIDATES = [
-    EVAL_DIR / "enhancement_reranking",
-    EVAL_DIR / "enhancement",
-]
-ENH_DIR = next((p for p in ENH_DIR_CANDIDATES if p.exists()), ENH_DIR_CANDIDATES[0])
+ENH_DIR = EVAL_DIR / "enhancement_reranking"
 ENH_RAW_DIR = ENH_DIR / "raw"
 ENH_FIG_DIR = ENH_DIR / "figures"
-
-for d in [ENH_DIR, ENH_RAW_DIR, ENH_FIG_DIR]:
-    d.mkdir(parents=True, exist_ok=True)
 
 BENCHMARK_PATH = EVAL_DIR / "benchmark_questions.csv"
 BASELINE_RESULTS_PATH = EVAL_DIR / "evaluation_results.csv"
@@ -452,43 +486,53 @@ BASELINE_SUMMARY_PATH = EVAL_DIR / "evaluation_summary.csv"
 RERANKED_RAW_PATH = ENH_RAW_DIR / "benchmark_raw_outputs_reranked.csv"
 RERANKED_SCORED_PATH = ENH_DIR / "evaluation_results_reranked.csv"
 
-required_files = [BENCHMARK_PATH, BASELINE_RESULTS_PATH, RERANKED_SCORED_PATH]
-missing = [str(p) for p in required_files if not p.exists()]
+COMPARISON_PATH = ENH_DIR / "enhancement_comparison.csv"
+TYPE_COMPARISON_PATH = ENH_DIR / "enhancement_comparison_by_type.csv"
+FIG_PATH = ENH_FIG_DIR / "baseline_vs_reranked_overall_mean.png"
 
-if missing:
+required_files = [
+    BENCHMARK_PATH,
+    BASELINE_RESULTS_PATH,
+    BASELINE_SUMMARY_PATH,
+    RERANKED_RAW_PATH,
+    RERANKED_SCORED_PATH,
+]
+
+missing_files = [str(path) for path in required_files if not path.exists()]
+if missing_files:
     raise FileNotFoundError(
-        "Missing required saved files:\n- " + "\n- ".join(missing)
+        "Missing required enhancement artifact file(s):\n- " + "\n- ".join(missing_files)
     )
 
 benchmark_df = pd.read_csv(BENCHMARK_PATH)
 baseline_results_df = pd.read_csv(BASELINE_RESULTS_PATH)
+baseline_summary_df = pd.read_csv(BASELINE_SUMMARY_PATH)
+reranked_raw_df = pd.read_csv(RERANKED_RAW_PATH)
 reranked_eval_df = pd.read_csv(RERANKED_SCORED_PATH)
-
-if RERANKED_RAW_PATH.exists():
-    reranked_raw_df = pd.read_csv(RERANKED_RAW_PATH)
-else:
-    reranked_raw_df = reranked_eval_df.copy()
-
-benchmark_df.head(5)
 ```
 
 ```{python}
 #| label: load-question-types-from-disk
 #| eval: true
-#| code-summary: "Ensure saved results preserve question types"
+#| code-summary: "Ensure saved reranked results preserve Question_Type"
 
 if "Question_Type" not in benchmark_df.columns:
     qa_reviewed_path = STAGE3_DIR / "qa_dataset_reviewed.csv"
+
     if not qa_reviewed_path.exists():
-        raise KeyError(
-            "benchmark_questions.csv does not contain 'Question_Type' and qa_dataset_reviewed.csv was not found."
+        raise FileNotFoundError(
+            "benchmark_questions.csv does not contain 'Question_Type' and "
+            f"qa_dataset_reviewed.csv was not found at: {qa_reviewed_path}"
         )
 
     qa_reviewed_df = pd.read_csv(qa_reviewed_path)
     qa_reviewed_df.columns = qa_reviewed_df.columns.str.strip()
 
-    if not {"question", "type"}.issubset(qa_reviewed_df.columns):
-        raise KeyError("qa_dataset_reviewed.csv must contain 'question' and 'type'.")
+    required_cols = {"question", "type"}
+    if not required_cols.issubset(qa_reviewed_df.columns):
+        raise KeyError(
+            "qa_dataset_reviewed.csv must contain columns: 'question' and 'type'."
+        )
 
     benchmark_df = benchmark_df.merge(
         qa_reviewed_df[["question", "type"]].rename(
@@ -499,15 +543,19 @@ if "Question_Type" not in benchmark_df.columns:
     )
 
 if "Question_Type" not in reranked_eval_df.columns or reranked_eval_df["Question_Type"].isna().all():
-    reranked_eval_df = reranked_eval_df.drop(columns=[c for c in ["Question_Type"] if c in reranked_eval_df.columns])
+    reranked_eval_df = reranked_eval_df.drop(
+        columns=[c for c in ["Question_Type"] if c in reranked_eval_df.columns]
+    )
     reranked_eval_df = reranked_eval_df.merge(
         benchmark_df[["id", "Question", "Question_Type"]],
         on=["id", "Question"],
         how="left",
     )
 
+if "Question_Type" not in reranked_eval_df.columns:
+    raise KeyError("Question_Type is missing from reranked_eval_df after merge.")
+
 print("Enhancement directory:", ENH_DIR)
-print("Benchmark columns:", benchmark_df.columns.tolist())
 print(reranked_eval_df[["id", "Question_Type"]].head())
 ```
 
@@ -518,29 +566,32 @@ The baseline comparison uses the Chapter 6 results for `config_a_text_only` and 
 ```{python}
 #| label: compare-baseline-vs-reranked
 #| eval: true
-#| code-summary: "Create a direct comparison between baseline Config A and reranked Config A"
+#| code-summary: "Create comparison between baseline Config A and reranked Config A"
 
-COMPARISON_PATH = ENH_DIR / "enhancement_comparison.csv"
+score_cols = ["answer_relevance", "faithfulness", "context_grounding"]
 
-# Load both results from disk and coerce score columns to numeric
-_score_cols = ["answer_relevance", "faithfulness", "context_grounding"]
+baseline_full = pd.read_csv(BASELINE_RESULTS_PATH)
+for col in score_cols:
+    baseline_full[col] = pd.to_numeric(baseline_full[col], errors="coerce")
 
-_baseline_full = pd.read_csv(BASELINE_RESULTS_PATH)
-for _c in _score_cols:
-    _baseline_full[_c] = pd.to_numeric(_baseline_full[_c], errors="coerce")
-baseline_a_df = _baseline_full[_baseline_full["config"] == "config_a_text_only"].copy()
+baseline_a_df = baseline_full[baseline_full["config"] == "config_a_text_only"].copy()
+if baseline_a_df.empty:
+    raise ValueError("No baseline rows found for config_a_text_only.")
 
-_reranked = pd.read_csv(RERANKED_SCORED_PATH)
-for _c in _score_cols:
-    _reranked[_c] = pd.to_numeric(_reranked[_c], errors="coerce")
+reranked_df = pd.read_csv(RERANKED_SCORED_PATH)
+for col in score_cols:
+    reranked_df[col] = pd.to_numeric(reranked_df[col], errors="coerce")
 
-comparison_df = pd.concat([
-    baseline_a_df.assign(system_variant="baseline"),
-    _reranked.assign(system_variant="reranked"),
-], ignore_index=True)
+comparison_df = pd.concat(
+    [
+        baseline_a_df.assign(system_variant="baseline"),
+        reranked_df.assign(system_variant="reranked"),
+    ],
+    ignore_index=True,
+)
 
 comparison_summary = (
-    comparison_df.groupby(["system_variant"], as_index=False)
+    comparison_df.groupby("system_variant", as_index=False)
     .agg(
         n_questions=("id", "count"),
         avg_answer_relevance=("answer_relevance", "mean"),
@@ -548,14 +599,14 @@ comparison_summary = (
         avg_context_grounding=("context_grounding", "mean"),
     )
 )
-comparison_summary["overall_mean"] = comparison_summary[[
-    "avg_answer_relevance",
-    "avg_faithfulness",
-    "avg_context_grounding",
-]].mean(axis=1)
+
+comparison_summary["overall_mean"] = comparison_summary[
+    ["avg_answer_relevance", "avg_faithfulness", "avg_context_grounding"]
+].mean(axis=1)
 
 comparison_summary = comparison_summary.round(2)
 comparison_summary.to_csv(COMPARISON_PATH, index=False)
+
 comparison_summary
 ```
 
@@ -568,8 +619,6 @@ This breakdown helps test the Chapter 6 hypothesis that improvements may be more
 #| eval: true
 #| code-summary: "Summarize baseline vs reranked performance by question type"
 
-TYPE_COMPARISON_PATH = ENH_DIR / "enhancement_comparison_by_type.csv"
-
 type_summary = (
     comparison_df.groupby(["system_variant", "Question_Type"], as_index=False)
     .agg(
@@ -578,14 +627,14 @@ type_summary = (
         avg_context_grounding=("context_grounding", "mean"),
     )
 )
-type_summary["overall_mean"] = type_summary[[
-    "avg_answer_relevance",
-    "avg_faithfulness",
-    "avg_context_grounding",
-]].mean(axis=1)
+
+type_summary["overall_mean"] = type_summary[
+    ["avg_answer_relevance", "avg_faithfulness", "avg_context_grounding"]
+].mean(axis=1)
 
 type_summary = type_summary.round(2)
 type_summary.to_csv(TYPE_COMPARISON_PATH, index=False)
+
 type_summary
 ```
 
@@ -598,13 +647,21 @@ type_summary
 
 FIG_PATH = ENH_FIG_DIR / "baseline_vs_reranked_overall_mean.png"
 
-plot_df = comparison_summary.set_index("system_variant")[[
-    "avg_answer_relevance",
-    "avg_faithfulness",
-    "avg_context_grounding",
-    "overall_mean",
-]]
-plot_df.columns = ["Answer Relevance", "Faithfulness", "Context Grounding", "Overall Mean"]
+plot_df = comparison_summary.set_index("system_variant")[
+    [
+        "avg_answer_relevance",
+        "avg_faithfulness",
+        "avg_context_grounding",
+        "overall_mean",
+    ]
+].copy()
+
+plot_df.columns = [
+    "Answer Relevance",
+    "Faithfulness",
+    "Context Grounding",
+    "Overall Mean",
+]
 
 fig, ax = plt.subplots(figsize=(9, 5))
 plot_df.T.plot(kind="bar", ax=ax)
@@ -617,6 +674,7 @@ ax.grid(axis="y", linestyle="--", alpha=0.5)
 ax.legend(title="Variant")
 plt.xticks(rotation=0)
 plt.tight_layout()
+
 plt.savefig(FIG_PATH, dpi=150, bbox_inches="tight")
 plt.show()
 ```
