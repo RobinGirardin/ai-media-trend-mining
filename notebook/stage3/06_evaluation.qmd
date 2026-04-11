@@ -70,6 +70,7 @@ STAGE3_DIR = DATA_DIR / "stage3"
 EVAL_DIR = STAGE3_DIR / "evaluation"
 ARTIFACTS_DIR = EVAL_DIR / "artifacts"
 FIG_DIR = EVAL_DIR / "figures"
+RAGAS_COMPARISON_FIG_PATH = FIG_DIR / "ragas_comparison.png"
 RAW_DIR = EVAL_DIR / "raw"
 RAGAS_DIR = EVAL_DIR / "ragas"
 

@@ -4,15 +4,20 @@ execute:
   eval: false
 ---
 
-This chapter implements one focused enhancement to the Stage 3 RAG system: **second-pass re-ranking**.
+This chapter implements two focused enhancements to the Stage 3 RAG system: **second-pass re-ranking** and **Hypothetical Document Embeddings (HyDE)**.
 
-Chapter 5 showed that the **text-only baseline (Config A)** was already a strong configuration. That makes it a sensible starting point for improvement: rather than changing several components at once, this chapter keeps the baseline architecture intact and modifies only the retrieval stage.
+Chapter 6 showed that the **text-only baseline (Config A)** was already the strongest configuration among the three. That makes it a sensible starting point for improvement: rather than changing several components at once, both enhancements keep the baseline architecture intact and modify only the retrieval stage.
 
-The main idea is simple. Dense retrieval is useful for finding semantically related chunks, but the first-pass ranking is not always precise enough for question answering. A reranker adds a second step: it scores a wider set of retrieved candidates against the full question and keeps only the most relevant chunks for generation.
+**Re-ranking** addresses a limitation of dense retrieval: the first-pass ranking by vector similarity is not always precise enough for question answering. A cross-encoder reranker adds a second step that scores a wider set of retrieved candidates against the full question and keeps only the most relevant chunks for generation.
 
-This enhancement is strongly aligned with the course material. The project brief explicitly allows a targeted enhancement proposal, and the lecture presents rerankers as an important way to improve RAG quality by reducing noisy context before generation.
+**HyDE** takes a different approach: instead of embedding the user query directly, it first asks the LLM to generate a hypothetical passage that would answer the query. This hypothetical document is then embedded and used as the search vector — the intuition being that a passage-shaped embedding sits closer to relevant chunks in the embedding space than a question-shaped embedding.
 
-## Objective
+Both enhancements are aligned with the course material. The project brief explicitly allows targeted enhancement proposals, and the lecture presents rerankers and query expansion techniques as important ways to improve RAG quality.
+
+
+## Re-ranking Enhancement
+
+### Objective
 
 This chapter answers one practical question:
 
@@ -25,7 +30,7 @@ The comparison is therefore:
 
 The same benchmark, scoring dimensions, and output structure from Chapter 6 are reused so that the comparison remains directly interpretable.
 
-## Setup
+### Setup
 
 ```{python}
 #| label: imports
@@ -67,7 +72,7 @@ with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
     config_a_manifest = json.load(f)
 ```
 
-## Load Baseline Artifacts and Chapter 6 Outputs
+### Load Baseline Artifacts and Chapter 6 Outputs
 
 We reuse the saved baseline artifacts and the benchmark generated in Chapter 6. This keeps the workflow reproducible and avoids rerunning the full Stage 3 pipeline.
 
@@ -119,7 +124,7 @@ baseline_summary_df = pd.read_csv(BASELINE_SUMMARY_PATH)
 benchmark_df.head(5)
 ```
 
-### Ensure Question Types Are Preserved
+#### Ensure Question Types Are Preserved
 
 ```{python}
 #| label: ensure-question-types
@@ -159,7 +164,7 @@ print("Benchmark columns:", benchmark_df.columns.tolist())
 print(benchmark_df["Question_Type"].value_counts(dropna=False))
 ```
 
-## Re-ranking
+### Re-ranking
 
 The baseline retriever returns the top-*k* chunks according to vector similarity. This works well for semantic matching, but it does not always place the **most useful** chunk first. In question answering, that matters because the generator sees only a small amount of context.
 
@@ -171,7 +176,7 @@ A reranker improves this by:
 
 This chapter uses a lightweight cross-encoder reranker because it is practical, easy to explain, and directly linked to the lecture discussion of modern RAG pipelines.
 
-## Build the Enhanced Retrieval Pipeline
+### Build the Enhanced Retrieval Pipeline
 
 ```{python}
 #| label: reranker-setup
@@ -187,10 +192,11 @@ embedding_model = HuggingFaceEmbeddings(
 
 llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
-chroma_client = chromadb.PersistentClient(path=config_a_manifest["chromadb_path"])
+CHROMADB_PATH = Path.cwd() / "data" / "processed" / "stage3" / "chromadb"
+chroma_client = chromadb.PersistentClient(path=str(CHROMADB_PATH))
 store = Chroma(
     client=chroma_client,
-    collection_name=config_a_manifest["collection_name"],
+    collection_name="rag_baseline",
     embedding_function=embedding_model,
 )
 
@@ -261,7 +267,7 @@ def docs_to_sources(docs):
     ]
 ```
 
-## Enhanced Config A Pipeline
+### Enhanced Config A Pipeline
 
 The prompt remains intentionally close to the baseline from Chapter 6. The only change is that the retrieved context is now **re-ranked** before generation.
 
@@ -293,7 +299,7 @@ reranked_generation_chain = (
 
 ```
 
-## Run the Same Benchmark
+### Run the Same Benchmark
 
 The reranked system is evaluated on the exact same benchmark used in Chapter 6.
 
@@ -356,7 +362,7 @@ reranked_raw_df.head(3)
 
 ```
 
-## Score the Reranked Outputs
+### Score the Reranked Outputs
 
 To keep the comparison consistent with Chapter 5, the re-ranked outputs are scored on the same three dimensions:
 
@@ -456,7 +462,7 @@ display_cols = [
 reranked_eval_df[display_cols].head(3)
 ```
 
-## Load Saved Enhancement Results from Disk
+### Load Saved Enhancement Results from Disk
 
 The following cells are used for normal reruns of the notebook. They keep the full implementation above visible for demonstration purposes, but avoid new embedding, retrieval, reranking, generation, and LLM-judge calls. Instead, the notebook loads the already saved results from disk.
 
@@ -559,7 +565,7 @@ print("Enhancement directory:", ENH_DIR)
 print(reranked_eval_df[["id", "Question_Type"]].head())
 ```
 
-## Compare Baseline vs. Reranked Baseline
+### Compare Baseline vs. Reranked Baseline
 
 The baseline comparison uses the Chapter 6 results for `config_a_text_only` and the new reranked scores from this chapter.
 
@@ -610,7 +616,7 @@ comparison_summary.to_csv(COMPARISON_PATH, index=False)
 comparison_summary
 ```
 
-## Comparison by Question Type
+### Comparison by Question Type
 
 This breakdown helps test the Chapter 6 hypothesis that improvements may be more visible for certain question types, especially more demanding comparison-oriented questions.
 
@@ -638,7 +644,7 @@ type_summary.to_csv(TYPE_COMPARISON_PATH, index=False)
 type_summary
 ```
 
-## Visual Comparison
+### Visual Comparison
 
 ```{python}
 #| label: comparison-figure
@@ -680,7 +686,7 @@ plt.show()
 ```
 
 
-## Interpretation
+### Interpretation
 
 The reranking enhancement improved the overall performance of the baseline system, raising the overall mean from 1.62 to 1.91. The clearest improvement was in faithfulness, which increased from 1.60 to 2.40. This suggests that reranking helped the model rely on better supporting passages and reduced weakly supported answers.
 
@@ -688,10 +694,171 @@ Answer relevance also improved, from 1.67 to 2.07, showing that the reranked con
 
 The breakdown by question type shows that the enhancement was most effective for analytical and factual questions. Analytical questions improved from 1.67 to 2.10, and factual questions from 1.80 to 2.10. Comparative questions improved more modestly, from 1.40 to 1.53, suggesting that reranking is less effective when the task requires more synthesis across multiple pieces of evidence.
 
-## Conclusion
+### Conclusion
 
 This chapter evaluated a focused enhancement to the text-only RAG baseline by adding a cross-encoder reranking step. The goal was to improve retrieval quality without changing the rest of the architecture.
 
 The results show that reranking strengthened the system overall, increasing the mean score from 1.62 to 1.91. The largest gain was in faithfulness, with a smaller but still meaningful improvement in answer relevance. The decline in context grounding shows that better passage selection alone is not enough to guarantee that the grounding of the answer will be clearly visible.
 
+<<<<<<< Updated upstream
 Overall, the enhancement demonstrates that reranking is a useful and relatively lightweight improvement to the baseline pipeline, especially for factual and analytical questions. The weaker gains on comparative questions suggest that future work should focus on prompting or context handling for questions that require multi-document reasoning.
+=======
+From a practical standpoint, the enhancement demonstrates that meaningful performance gains are achievable without changing the core RAG architecture. A cross-encoder reranker is a relatively lightweight addition that improved two out of three evaluation dimensions and the overall mean.
+
+The remaining gap in context grounding and the weaker gains on comparative questions point to the natural next step: improving prompting or context handling for multi-document reasoning tasks where synthesis across passages is necessary. For single-document factual retrieval, the current pipeline already performs substantially better than the Chapter 6 baseline.
+
+
+## HyDE Enhancement
+
+The re-ranking enhancement in the previous section improved retrieval by reordering already-retrieved chunks. This section explores a complementary approach: **Hypothetical Document Embeddings (HyDE)**.
+
+The idea is simple but effective. Instead of embedding the user query directly and searching for similar chunks, HyDE first asks the LLM to generate a hypothetical passage that would answer the query. This hypothetical document is then embedded and used as the search vector. The intuition is that a passage-shaped embedding sits closer to the relevant chunks in the embedding space than a question-shaped embedding.
+
+This approach is particularly interesting for our corpus because many of our Q&A pairs involve analytical and comparative questions — where the gap between the query embedding and the relevant chunk embedding is largest.
+
+The comparison is therefore:
+
+- **Baseline:** Config A (text-only RAG, dense retrieval)
+- **Enhanced:** Config A + HyDE retrieval
+
+
+```{python}
+#| label: hyde-setup
+#| eval: false
+#| code-summary: "Define HyDE retriever"
+
+from langchain_core.retrievers import BaseRetriever
+from langchain_core.callbacks import CallbackManagerForRetrieverRun
+
+def generate_hypothetical_document(query: str) -> str:
+    """Generate a hypothetical passage that would answer the query."""
+    hyde_prompt = ChatPromptTemplate.from_template(
+        """Please write a short news passage about the following AI topic.
+        
+Topic: {query}
+
+Passage:"""
+    )
+    hyde_chain = hyde_prompt | llm | StrOutputParser()
+    return hyde_chain.invoke({"query": query})
+
+class HyDERetriever(BaseRetriever):
+    store: Chroma
+    num_results: int = 6
+
+    def _get_relevant_documents(
+        self, query: str, *, run_manager: CallbackManagerForRetrieverRun
+    ) -> list:
+        hypothetical_doc = generate_hypothetical_document(query)
+        retriever = self.store.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": self.num_results}
+        )
+        return retriever.invoke(hypothetical_doc)
+
+hyde_retriever = HyDERetriever(store=store)
+print("HyDE retriever ready.")
+```
+
+### Implementation
+
+We implement HyDE by generating a hypothetical passage for each query using GPT-4o, embedding it with `all-MiniLM-L6-v2`, and retrieving the top-6 most similar chunks from ChromaDB. The rest of the pipeline — deduplication, prompt, and generation — remains identical to Config A.
+
+```{python}
+#| label: hyde-chain
+#| eval: false
+#| code-summary: "Build HyDE RAG chain"
+
+template = """You are an assistant for question-answering tasks about AI trends.
+Use the following retrieved context to answer the question.
+Base your answer strictly on the provided context. 
+If the context contains relevant information, use it even if it is partial.
+Keep the answer concise but informative.
+
+Question: {question}
+
+Context: {context}
+
+Answer:
+"""
+rag_prompt = ChatPromptTemplate.from_template(template)
+
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+def deduplicate_by_url(docs, max_per_url: int = 1):
+    seen = {}
+    result = []
+    for doc in docs:
+        url = doc.metadata["url"]
+        seen[url] = seen.get(url, 0) + 1
+        if seen[url] <= max_per_url:
+            result.append(doc)
+    return result
+
+hyde_rag_chain = (
+    RunnableParallel(
+        {
+            "context": hyde_retriever | deduplicate_by_url,
+            "question": RunnablePassthrough()
+        }
+    )
+).assign(answer=(
+    RunnablePassthrough.assign(context=(lambda x: format_docs(x["context"])))
+    | rag_prompt
+    | llm
+    | StrOutputParser()
+))
+
+print("HyDE RAG chain ready.")
+```
+
+### Example Queries
+
+We test HyDE with the same three queries used in Chapter 3 to allow direct qualitative comparison with the baseline. For each query, HyDE first generates a hypothetical passage before retrieving chunks.
+
+**Query 1** targets a specific, well-documented event — the DeepSeek-R1 release. This is a challenging case for HyDE because the hypothetical document generated by GPT-4o may not reflect the corpus-specific framing of the event.
+
+```{python}
+#| label: hyde-example-query
+#| eval: false
+#| code-summary: "Test HyDE with example query"
+
+result = hyde_rag_chain.invoke(
+    "What was the impact of DeepSeek-R1 release on the AI industry?"
+)
+print("Answer:", result["answer"])
+print("\nSources:")
+for doc in result["context"]:
+    print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
+```
+
+**Query 2** tests a thematic question about AI regulation and ethics — a topic well represented across the corpus. HyDE performs well here, retrieving 6 diverse sources and producing a comprehensive answer.
+
+```{python}
+result = hyde_rag_chain.invoke(
+    "What are the main concerns around AI regulation and ethics in 2025?"
+)
+print("Answer:", result["answer"])
+print("\nSources:")
+for doc in result["context"]:
+    print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
+```
+
+**Query 3** is the broad trend question where Config A struggled most. HyDE retrieves 6 relevant sources and produces a more substantive answer than the baseline — suggesting that the hypothetical document bridges the gap between a vague query and specific corpus chunks.
+
+```{python}
+result = hyde_rag_chain.invoke(
+    "What are the main trends in generative AI in 2025?"
+)
+print("Answer:", result["answer"])
+print("\nSources:")
+for doc in result["context"]:
+    print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
+```
+
+### Qualitative Comparison
+
+Comparing HyDE with Config A reveals a mixed picture. For specific event-driven queries (Query 1), HyDE underperforms — the hypothetical document diverges from the corpus framing and retrieves fewer relevant chunks. For thematic and broad queries (Queries 2 and 3), HyDE retrieves more diverse sources and produces richer answers. This suggests HyDE is most effective when the LLM's prior knowledge aligns well with the corpus content.
+
+>>>>>>> Stashed changes
