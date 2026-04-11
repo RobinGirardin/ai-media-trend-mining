@@ -700,12 +700,7 @@ This chapter evaluated a focused enhancement to the text-only RAG baseline by ad
 
 The results show that reranking strengthened the system overall, increasing the mean score from 1.62 to 1.91. The largest gain was in faithfulness, with a smaller but still meaningful improvement in answer relevance. The decline in context grounding shows that better passage selection alone is not enough to guarantee that the grounding of the answer will be clearly visible.
 
-<<<<<<< Updated upstream
 Overall, the enhancement demonstrates that reranking is a useful and relatively lightweight improvement to the baseline pipeline, especially for factual and analytical questions. The weaker gains on comparative questions suggest that future work should focus on prompting or context handling for questions that require multi-document reasoning.
-=======
-From a practical standpoint, the enhancement demonstrates that meaningful performance gains are achievable without changing the core RAG architecture. A cross-encoder reranker is a relatively lightweight addition that improved two out of three evaluation dimensions and the overall mean.
-
-The remaining gap in context grounding and the weaker gains on comparative questions point to the natural next step: improving prompting or context handling for multi-document reasoning tasks where synthesis across passages is necessary. For single-document factual retrieval, the current pipeline already performs substantially better than the Chapter 6 baseline.
 
 
 ## HyDE Enhancement
@@ -861,4 +856,3 @@ for doc in result["context"]:
 
 Comparing HyDE with Config A reveals a mixed picture. For specific event-driven queries (Query 1), HyDE underperforms — the hypothetical document diverges from the corpus framing and retrieves fewer relevant chunks. For thematic and broad queries (Queries 2 and 3), HyDE retrieves more diverse sources and produces richer answers. This suggests HyDE is most effective when the LLM's prior knowledge aligns well with the corpus content.
 
->>>>>>> Stashed changes
