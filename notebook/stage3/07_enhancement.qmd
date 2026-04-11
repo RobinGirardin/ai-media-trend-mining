@@ -358,7 +358,7 @@ reranked_raw_df.head(3)
 
 ## Score the Reranked Outputs
 
-To keep the comparison consistent with Chapter 6, the reranked outputs are scored on the same three dimensions:
+To keep the comparison consistent with Chapter 5, the re-ranked outputs are scored on the same three dimensions:
 
 - **answer relevance**
 - **faithfulness**
@@ -682,22 +682,16 @@ plt.show()
 
 ## Interpretation
 
-The results show a clear and meaningful improvement over the Chapter 6 baseline, with an overall mean rising from **1.56 to 1.91**. The gains are not uniform across dimensions, which makes the picture more informative than a flat improvement would be.
+The reranking enhancement improved the overall performance of the baseline system, raising the overall mean from 1.62 to 1.91. The clearest improvement was in faithfulness, which increased from 1.60 to 2.40. This suggests that reranking helped the model rely on better supporting passages and reduced weakly supported answers.
 
-**Faithfulness** shows the strongest gain, increasing from **1.53 to 2.40** — nearly doubling. This is consistent with the expected effect of reranking: the generator receives a cleaner and more relevant set of passages, which reduces the chance of unsupported or loosely supported claims. In other words, improving retrieval quality appears to improve downstream answer faithfulness as well.
+Answer relevance also improved, from 1.67 to 2.07, showing that the reranked context helped the system respond more directly to the questions. The only metric that declined was context grounding, which dropped from 1.60 to 1.27. This suggests that while the selected passages became more useful, the final answers did not always make their grounding in the retrieved context as explicit to the evaluator.
 
-**Answer relevance** also improves noticeably, from **1.60 to 2.07**. This suggests that the reranking step is doing its job: by surfacing more relevant passages before generation, the model has better evidence to work with and produces answers that more directly address the question. The reranking step does not appear to damage relevance; instead, it helps the model focus on passages that better match the question.
-
-**Context grounding** is the exception: it declined slightly from **1.53 to 1.27**. This is a nuanced but plausible result. Context grounding as scored by the judge measures how explicitly the answer appears tied to the retrieved context. Reranking can improve passage selection without guaranteeing that the generated answer will make that grounding equally visible to the evaluator, especially for short or synthesized answers. In our case the Context grounding dropped 1.27; however, this represents an improvement from previous runs where the context grouding was 1.0. After changing multiple times the promt for the LLM we achieved a score of 1.27 after reranking
-
-The per-type breakdown clarifies where the enhancement works best. **Factual** questions benefit most, with the reranked overall mean reaching **2.10** compared to **1.80** for the baseline. Analytical had the highest improvement from **1.37** to **2.10**. while the **comparative** questions only improved with a **0.03**.
+The breakdown by question type shows that the enhancement was most effective for analytical and factual questions. Analytical questions improved from 1.67 to 2.10, and factual questions from 1.80 to 2.10. Comparative questions improved more modestly, from 1.40 to 1.53, suggesting that reranking is less effective when the task requires more synthesis across multiple pieces of evidence.
 
 ## Conclusion
 
-This chapter implemented and evaluated a focused enhancement to the text-only RAG baseline: cross-encoder reranking. The goal was to improve which passages reach the generator while keeping the rest of the baseline architecture unchanged.
+This chapter evaluated a focused enhancement to the text-only RAG baseline by adding a cross-encoder reranking step. The goal was to improve retrieval quality without changing the rest of the architecture.
 
-The results support this framing. The overall mean improved from **1.56 to 1.91**, with faithfulness showing the largest absolute gain (1.53 → 2.40). Answer relevance also improved, confirming that reranking contributed positively to the retrieval side. The one dimension that did not improve — context grounding — suggests that better passage ordering alone is not enough to make answer grounding consistently visible to the evaluator.
+The results show that reranking strengthened the system overall, increasing the mean score from 1.62 to 1.91. The largest gain was in faithfulness, with a smaller but still meaningful improvement in answer relevance. The decline in context grounding shows that better passage selection alone is not enough to guarantee that the grounding of the answer will be clearly visible.
 
-From a practical standpoint, the enhancement demonstrates that meaningful performance gains are achievable without changing the core RAG architecture. A cross-encoder reranker is a relatively lightweight addition that improved two out of three evaluation dimensions and the overall mean.
-
-The remaining gap in context grounding and the weaker gains on comparative questions point to the natural next step: improving prompting or context handling for multi-document reasoning tasks where synthesis across passages is necessary. For single-document factual retrieval, the current pipeline already performs substantially better than the Chapter 6 baseline.
+Overall, the enhancement demonstrates that reranking is a useful and relatively lightweight improvement to the baseline pipeline, especially for factual and analytical questions. The weaker gains on comparative questions suggest that future work should focus on prompting or context handling for questions that require multi-document reasoning.
