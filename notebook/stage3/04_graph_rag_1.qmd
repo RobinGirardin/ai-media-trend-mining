@@ -36,7 +36,7 @@ Each node contains valuable metadata that we can leverage for enhanced retrieval
 ### Implementation: Config B Knowledge Graph Builder
 
 We exploit the highly organized structure of the `graph.json` file to create a `networkx` KnowledgeGraph.
-As nodes and connections a separated in distinct *nodes* and *connection* object, the process is straightfoward.
+As nodes and connections a separated in distinct *nodes* and *connection* object, the process is straightforward.
 
 ```{python}
 #| label: imports-config-b
@@ -89,7 +89,7 @@ def query_graph_json():
   url = "http://85.214.245.200:7004/graph"
   file_path = Path(STAGE3_DATA_DIR, "graph.json")
   if not file_path.exists():
-    print("'graph.json' file does not exists.")
+    print("'graph.json' file does not exist.")
     graph = requests.get(url)
 
     print(f"Saving 'graph.json' at '{str(file_path)}'.")
@@ -196,8 +196,8 @@ for node_id, node_attrs in sample_nodes:
 
 ### Testing Graph Connectivity and Relationships
 
-Supporting the previous exploration, the "Transformer" entity appear as the most connected node.
-Moreover, all the attibutes mentioned at the original graph [API documentation](https://lofty-tower-e99.notion.site/AI-Knowledge-Graph-API-description-2872f78b6b008087aeaad9356891b8cf) are available.
+Supporting the previous exploration, the "Transformer" entity appears as the most connected node.
+Moreover, all the attributes mentioned at the original graph [API documentation](https://lofty-tower-e99.notion.site/AI-Knowledge-Graph-API-description-2872f78b6b008087aeaad9356891b8cf) are available.
 
 ```{python}
 #| label: test-config-b-connectivity
@@ -232,16 +232,16 @@ if config_b_graph.number_of_nodes() > 0:
 ## Retrieval Approach
 
 The goal of this section is to build a pipeline that gather the relevant node information from a given query.
-This knowledge graph contais rich metadata and usefull retrieval attributes such as "activity" or "trend".
-Moreover, the "strengh" relationship attributes is could also be used to retrieve relevant relationships. 
+This knowledge graph contains rich metadata and useful retrieval attributes such as "activity" or "trend".
+Moreover, the "strength" relationship attributes could also be used to retrieve relevant relationships. 
 As such, after identifying node matches, the pipeline will retrieve the most relevant neighbor and relationships, supplementing model's context.
 
-We'll explore two main different appraoch before deciding on the best one.
-The first approach is tokenize the query, remove stop words and use a simple case-insenstive matching to find corresponding nodes.
+We'll explore two main different approaches before deciding on the best one.
+The first approach is to tokenize the query, remove stop words and use a simple case-insensitive matching to find corresponding nodes.
 However, this approach has the limitation that it doesn't take the query context and semantic into account to find matches.
 
-The second approahc is a slightly more advanced pipeline using the inherentic node `description` to find the node being the most semantically similar to the query.
-Contrary to the first appraoch, its assume that each query contains enough semantic information to be link with some entites reliably.
+The second approach is a slightly more advanced pipeline using the inherent node `description` to find the node being the most semantically similar to the query.
+Contrary to the first appraoch, its assume that each query contains enough semantic information to be linked with some entites reliably.
 
 ### Case-Sensitive Matching
 
@@ -249,7 +249,7 @@ We preprocess queries to extract the most relevant tokens. While a complex entit
 we opt for a case-insensitive matching approach, which balances efficiency and quality effectively.
 Prioritizing exact matches minimizes noise in the retrieval process.
 
-After a bit of testing, using Regex to matchin nodes isn't optimal.
+After a bit of testing, using Regex to matching nodes isn't optimal.
 Matches aren't always written in the same way.
 This is especially the case since the data contains a lot of products, models references.
 For example, we would still like to allow "DeepSeek-R1" to match the "Deep Seek" node.
@@ -288,9 +288,9 @@ print("Is 'DeepSeek' a node element?", "DeepSeek" in index.keys())
 print("Is 'Deep Seek' a node element?", "Deep Seek" in index.keys())
 ```
 
-Using the Levenstein distance to allow for more flexibilty in the matching process doesn't seem to work either. 
-As we can see with token such as 'impact' or 'release', there is a significant different between synthaxique and semantic similarity.
-Even token such as 'AI' are contains in too many brand name to make this technique effective.
+Using the Levenstein distance to allow for more flexibility in the matching process doesn't seem to work either. 
+As we can see with token such as 'impact' or 'release', there is a significant difference between syntactic and semantic similarity.
+Even token such as 'AI' are contained in too many brand name to make this technique effective.
 
 ```{python}
 #| label: query-ndoes-levenshtein-distance-distribution
@@ -327,12 +327,12 @@ The previous section highlights the limitations of heuristic-based node matching
 These challenges stem from the absence of semantic awareness in the retrieval algorithm.
 While similarity scores identify close matches, they do not guarantee semantic relevance to the query’s intent.
 
-This section attempts a difference method. Leveraging the KG `description` or `long_description` attributes of each node to construct a specilized node embedding.
+This section attempts a different method. Leveraging the KG `description` or `long_description` attributes of each node to construct a specialized node embedding.
 Then, leveraging the vector space in which each node is embedded, we'll find the most similar nodes matching with the query, which will also be embedded.
 Luckily, those attributes is very complete and thorough, with only 0.04% of missing values under the form "Description not available yet" or "Long description not available yet".
 
 Simulating a realworld environement, we'll use the FAISS library for this search.
-It offers many indexing possibilites reducing query time for big datasets and is a frameword often used in production that is good practice the get familiar with.
+It offers many indexing possibilites reducing query time for big datasets and is a framework often used in production that is good practice the become familiar with.
 Since our KG contains very few nodes, we won't use any indexing, as we'll opt of an exact search.
 
 ```{python}
@@ -468,7 +468,7 @@ for match in matches:
 ```
 
 Using a much larger embedding yields results similar to the `gemma-embedding-300m` model.
-Indicating that this later model and the 8 billion's parameter have similiar representation.
+Indicating that this later model and the 8 billion's parameter have similar representation.
 
 This also highlights the difficulties of entites matching using embeddings only, as embeddings are meant to capture the general semantic meaning of a sentence and aren't particularly tailored to have a comprehensive representation of specific entities such "DeepSeek-R1" model.
 
@@ -515,7 +515,7 @@ for match in matches:
   print(match)
 ```
 
-Reducing the query the the specific entity doesn't work with the current
+Reducing the query to the specific entity doesn't work with the current
 KG descriptions.
 It seems infeasible to regenerate description that would suits our tasks, even more so considering that the current node description are quite good.
 
@@ -528,7 +528,7 @@ for match in matches:
 
 #### Conclusion
 
-Neither approach is optimal, but the simple pattern-matching method—prioritizing precision over recall—proves more reliable.
+Neither approach is optimal, but the simple pattern-matching method-prioritizing precision over recall-proves more reliable.
 While some queries may yield no matches, this technique ensures that retrieved nodes are accurate.
 
 However, the pipeline struggles with aliases (e.g., "DeepSeek-R1" vs. "Deep Seek") and lacks contextual awareness.
@@ -541,7 +541,7 @@ Future work could combine both approaches, using semantic search for broad queri
 
 ## Retrieval Pipeline
 
-Now that we figured on the approach we would like to take (case-sensitive matching), we'll update the baseline pipeline to incorporate a KG retrieval pipeline.
+Now that we figured out the approach we would like to take (case-sensitive matching), we'll update the baseline pipeline to incorporate a KG retrieval pipeline.
 
 Leveraging the precise description and metadata of each node, the pipeline will query for a matching node's metadata, as well as the node's one-hop neighbors.
 
@@ -749,7 +749,7 @@ retriever = store.as_retriever(
 rag_chain = (
     RunnableParallel(
         {
-            # Chroma branch — unchanged
+            # Chroma branch - unchanged
             "doc_context": retriever | deduplicate_by_url | format_docs,
             "question":    RunnablePassthrough(),
         }

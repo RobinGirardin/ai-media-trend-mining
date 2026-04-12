@@ -4,7 +4,7 @@ execute:
   eval: false
 ---
 
-This chapter constructs the evaluation dataset used across all RAG configurations in Chapters 3–5. We select 80 representative passages from the AI Media Dataset using tag-based stratified sampling, generate 240 Q&A pairs using GPT-4o, and categorise them into three types: factual, analytical, and comparative. The resulting dataset is used in Chapter 6 to evaluate and compare the three RAG configurations using both a custom LLM-judge evaluation framework and RAGAS.
+This chapter constructs the evaluation dataset used across all RAG configurations in Chapters 2–4. We select 80 representative passages from the AI Media Dataset using tag-based stratified sampling, generate 240 Q&A pairs using GPT-4o, and categorise them into three types: factual, analytical, and comparative. The resulting dataset is used in Chapter 5 to evaluate and compare the three RAG configurations using both a custom LLM-judge evaluation framework and RAGAS.
 
 
 ## Setup
@@ -256,7 +256,7 @@ for type_ in ["factual", "analytical", "comparative"]:
     print(f"Domain: {example['domain']}")
 ```
 
-The Q&A dataset is saved to `data/processed/stage3/qa_dataset.csv` and serves as the evaluation input for all three RAG configurations compared in Chapter 6.
+The Q&A dataset is saved to `data/processed/stage3/qa_dataset.csv` and serves as the evaluation input for all three RAG configurations compared in Chapter 5.
 
 
 ## Manual & AI-Assisted Review
@@ -305,4 +305,4 @@ qa_df_reviewed.to_csv(REVIEWED_PATH, index=False)
 print(f"\nSaved to {REVIEWED_PATH}")
 ```
 
-The reviewed dataset of 215 Q&A pairs forms the evaluation backbone for Chapters 4–6. It covers 20 distinct AI topics, spans articles from across the full 12-month corpus, and provides a balanced mix of question types to probe factual recall, analytical reasoning, and comparative understanding across all three RAG configurations.
+The reviewed dataset of 215 Q&A pairs forms the evaluation backbone for Chapters 3–5. It covers 20 distinct AI topics, spans articles from across the full 12-month corpus, and provides a balanced mix of question types to probe factual recall, analytical reasoning, and comparative understanding across all three RAG configurations.

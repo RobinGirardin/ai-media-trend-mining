@@ -15,7 +15,7 @@ The evaluation follows the project requirement to compare text-only and graph-au
 - **a custom LLM judge**
 - **RAGAS**
 
-The **custom LLM judge**,  evaluates generated answers using a project-specific rubric focused on answer relevance, faithfulness, and context grounding. This method is useful because it reflects the specific goals of the project and allows the systems to be judged according to criteria that matter most for this study.
+The **custom LLM judge**, evaluates generated answers using a project-specific rubric focused on answer relevance, faithfulness, and context grounding. This method is useful because it reflects the specific goals of the project and allows the systems to be judged according to criteria that matter most for this study.
 
 The second - **RAGAS**, is a more standardized evaluation framework for RAG systems, which provides established metrics such as faithfulness, answer relevancy, and answer correctness.
 
@@ -103,7 +103,7 @@ RAGAS_SUMMARY_PATH = RAGAS_DIR / "ragas_summary.csv"
 ### Load Saved Artifacts
 
 Chapters 3–5 each saved a small manifest and, for graph-based configurations, a serialized graph object.
-Instead of rerunning the whole pipeline we will be loading the files. Below you can find the files that we will be loading for an easier reproductibilty.
+Instead of rerunning the whole pipeline we will be loading the files. Below you can find the files that we will be loading for an easier reproducibility.
 
 Expected files:
 
@@ -700,7 +700,7 @@ print("Config C ready.")
 
 ### Unified Evaluation Wrappers
 
-The three pipelines return the same structures, the final answer string. These wrappers standardize the output for evaluation.
+The three pipelines return the same structures, the same final answer string. These wrappers standardize the output for evaluation.
 
 ```{python}
 #| label: wrappers
@@ -1033,15 +1033,15 @@ print(f"Saved figure to: {fig_path}")
 
 ### Custom LLM Judge Evaluation
 
-The evaluation scores paint a clear and consistent picture: all three configurations perform poorly across every dimension, with average scores clustering between 1.2 and 1.8 on a 1–5 scale. This is not a marginal underperformance — it indicates that none of the systems are reliably grounding their answers in the retrieved evidence or responding in a way that the judge considers directly relevant to the question.
+The evaluation scores paint a clear and consistent picture: all three configurations perform poorly across every dimension, with average scores clustering between 1.2 and 1.8 on a 1–5 scale. This is not a marginal underperformance - it indicates that none of the systems are reliably grounding their answers in the retrieved evidence or responding in a way that the judge considers directly relevant to the question.
 
 **Config A (text-only baseline)** achieves the best overall averages across the board (1.63 answer relevance, 1.53 faithfulness, 1.53 context grounding), which is a counterintuitive but instructive result. A text-only pipeline with no additional complexity is outperforming both graph-augmented variants. This suggests that the graph integration is not yet adding signal - instead, it is adding noise. When the KG context passed into the prompt is loosely matched or poorly formatted relative to the question, it competes with the document context rather than complementing it, and the LLM judge penalises answers that drift from the grounded evidence.
 
 **Config B (provided knowledge graph)** scores marginally above Config A on answer relevance (1.67) but is nearly identical on faithfulness and context grounding (1.60 and 1.53). The small advantage on relevance may reflect that the provided graph carries richer descriptive node attributes (activity, popularity, trend), which can occasionally surface relevant entity-level detail. However, the improvement is negligible, and faithfulness remains low, meaning the generated answers are not staying close to the retrieved content even when the graph adds context.
 
-**Config C (Stage 1 knowledge graph)** performs the worst across all metrics and all question types, with factual questions scoring as low as 1.1 on both faithfulness and context grounding. The Stage 1 graph was built from entity and relationship extraction over the raw corpus, which produces a more relational but also noisier structure. When the graph retrieval step matches tokens to node names, it pulls in relational paths and neighborhood edges that are structurally correct but semantically thin — they describe connections between entities rather than explaining them. This kind of context is not well suited to grounding factual or analytical answers, and the judge scores reflect that directly.
+**Config C (Stage 1 knowledge graph)** performs the worst across all metrics and all question types, with factual questions scoring as low as 1.1 on both faithfulness and context grounding. The Stage 1 graph was built from entity and relationship extraction over the raw corpus, which produces a more relational but also noisier structure. When the graph retrieval step matches tokens to node names, it pulls in relational paths and neighborhood edges that are structurally correct but semantically thin - they describe connections between entities rather than explaining them. This kind of context is not well suited to grounding factual or analytical answers, and the judge scores reflect that directly.
 
-Across question types, the pattern holds without exception. **Factual** questions score highest within each configuration, which is expected since factual answers are more likely to be explicitly stated in a retrieved chunk. **Analytical** and **comparative** questions consistently score lower, confirming that the current retrieval and context integration strategies are not sufficient for multi-step or inferential reasoning. Notably, Config C does not gain any measurable advantage on comparative questions despite the relational structure of its graph — the token-matching retrieval method is too coarse to identify the right nodes for a given comparison, so the KG context that reaches the prompt is often irrelevant.
+Across question types, the pattern holds without exception. **Factual** questions score highest within each configuration, which is expected since factual answers are more likely to be explicitly stated in a retrieved chunk. **Analytical** and **comparative** questions consistently score lower, confirming that the current retrieval and context integration strategies are not sufficient for multi-step or inferential reasoning. Notably, Config C does not gain any measurable advantage on comparative questions despite the relational structure of its graph - the token-matching retrieval method is too coarse to identify the right nodes for a given comparison, so the KG context that reaches the prompt is often irrelevant.
 
 The underlying cause across all three systems is likely the same: **the retrieval step is not surfacing evidence that is close enough to the question for the LLM to produce a grounded, relevant answer**. The vector store retrieves semantically similar chunks, but semantic similarity at the embedding level does not guarantee that the content directly answers the question. Without a filtering or re-ranking step, irrelevant or tangentially related passages reach the prompt and lower faithfulness and context grounding scores. The KG context compounds this problem when the matched nodes are off-topic, since the prompt becomes longer and less focused without becoming more informative.
 
@@ -1050,9 +1050,9 @@ The underlying cause across all three systems is likely the same: **the retrieva
 ## RAGAS 
 
 
-This second chapter introduces **RAGAS** as a complementary evaluation layer. The purpose is not to replace the custom LLM judge, but to validate the Stage 3 findings with a more standardised RAG evaluation framework. Because the benchmark responses were already generated and saved locally, this chapter reuses those saved outputs and, where needed, reconstructs the contexts locally rather than rerunning the full generation workflow.
+This second section introduces **RAGAS** as a complementary evaluation layer. The purpose is not to replace the custom LLM judge, but to validate the Stage 3 findings with a more standardised RAG evaluation framework. Because the benchmark responses were already generated and saved locally, this section reuses those saved outputs and, where needed, reconstructs the contexts locally rather than rerunning the full generation workflow.
 
-This design keeps the original evaluation reproducible while adding a second perspective. In practical terms, the custom LLM judge measures answer quality against a project-specific rubric, whereas RAGAS evaluates the same systems through a standard RAG lens. The combination supports a richer final interpretation: one chapter explains performance through tailored judging criteria, and the second checks whether that picture still holds under a more formal external framework.
+This design keeps the original evaluation reproducible while adding a second perspective. In practical terms, the custom LLM judge measures answer quality against a project-specific rubric, whereas RAGAS evaluates the same systems through a standard RAG lens. The combination supports a richer final interpretation: one section explains performance through tailored judging criteria, and the second checks whether that picture still holds under a more formal external framework.
 
 ```{python}
 #| label: ragas-paths

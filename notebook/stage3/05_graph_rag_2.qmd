@@ -163,9 +163,9 @@ The five most frequent relationship types are shown in @tbl-edge-types.
 
 Entity prominence is measured by mention frequency across source articles. The three most frequently mentioned entities are:
 
-- **Gemini Robotics** — 1,051 mentions
-- **Google** — 912 mentions
-- **Google DeepMind** — 796 mentions
+- **Gemini Robotics** - 1,051 mentions
+- **Google** - 912 mentions
+- **Google DeepMind** - 796 mentions
 
 ###### Dominant Thematic Domains
 
@@ -185,8 +185,8 @@ Approximately **60% of edges** represent cooperative or co-productive interactio
 
 A subset of edges encodes high-value financial transactions. Notable examples include:
 
-- IBM acquisition of HashiCorp — \$5 billion
-- OpenAI acquisition of Windsurf — \$3 billion
+- IBM acquisition of HashiCorp - \$5 billion
+- OpenAI acquisition of Windsurf - \$3 billion
 
 ##### Temporal Trends
 
@@ -289,7 +289,7 @@ def gather_node_relationships(
 ```
 
 We can gather quite a bit of information by using those relationships.
-Nevertheless, as a dictionnary format, it is still too raw for any model to comprehend fully.
+Nevertheless, as a dictionary format, it is still too raw for any model to comprehend fully.
 Thus, let's build a small function that would turn this result into human-readable version, ready to be included as context.
 
 ```{python}
@@ -362,7 +362,7 @@ print(context)
 
 ## Retrieval Pipeline
 
-This section combine the baseline RAG pipeline with the new KG retrieval functions.
+This section combines the baseline RAG pipeline with the new KG retrieval functions.
 
 ```{python}
 #| label: retrieval-pipeline-config-c
@@ -512,7 +512,7 @@ retriever = store.as_retriever(
 rag_chain = (
     RunnableParallel(
         {
-            # Chroma branch — unchanged
+            # Chroma branch - unchanged
             "doc_context": retriever | deduplicate_by_url | format_docs,
             "question":    RunnablePassthrough(),
         }
@@ -581,13 +581,13 @@ Each node is linked to an article, a relationship that could be leveraged to ext
 
 The pipeline itself might benefit from a better node matching algorithm.
 The current case-insensitive matching lacks the semantic understanding that some queries would require.
-Moreover, it doesn't allow for much leverage with respect to the way of writting the entities, abbreviations and derivative products.
+Moreover, it doesn't allow for much leverage with respect to the way of writing the entities, abbreviations and derivative products.
 As such, a more advanced model such as `spaCy` entity linker pipeline could be more appropriate. \newline
-Additionnaly, the overall pipeline relies on a simple manually tokenazation algorithm, which would benefit from a better algorithm such as `spaCy`, or other word-level tokenizer.
+Additionally, the overall pipeline relies on a simple manually tokenization algorithm, which would benefit from a better algorithm such as `spaCy`, or other word-level tokenizer.
 
 Lastly, the selection process of the relevant elements to retrieve from could be further researched upon.
-Although we believe that we identified each knowledge graph strength, the current approach fairly simple and relies on the matched node and its neighbors.
-A better retrieval schema, leveraging other component, or the relationship better, could achieve better performance.
+Although we believe that we identified each knowledge graph strength, the current approach is fairly simple and relies on the matched node and its neighbors.
+A better retrieval schema, leveraging other components, or the relationship better, could achieve better performance.
 
 ```{python}
 #| label: Save reusable artifacts for Chapter 6

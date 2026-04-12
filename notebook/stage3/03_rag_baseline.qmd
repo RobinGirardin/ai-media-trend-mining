@@ -4,7 +4,7 @@ execute:
   eval: false
 ---
 
-This chapter implements Config A - the text-only RAG baseline. It uses dense vector retrieval over the AI Media Dataset without any knowledge graph integration. This configuration serves as the reference point for comparing the graph-augmented approaches in Chapters 4 and 5.
+This chapter implements Config A - the text-only RAG baseline. It uses dense vector retrieval over the AI Media Dataset without any knowledge graph integration. This configuration serves as the reference point for comparing the graph-augmented approaches in Chapters 3 and 4.
 
 The pipeline follows the structure introduced in the Cleantech RAG tutorial (Perruchoud & Rowlands) and adapts it to the AI Media Dataset from Stage 1.
 
@@ -433,7 +433,7 @@ for d in [EVAL_DIR, ARTIFACTS_DIR, CONFIG_A_DIR, CONFIG_B_DIR, CONFIG_C_DIR]:
 ```
 
 ```{python}
-#| label: Save reusable artifacts for Chapter 6
+#| label: Save reusable artifacts for Chapter 5
 #| eval: true
 #| code-summary: "config_a_manifest"
 

@@ -174,7 +174,7 @@ A reranker improves this by:
 2. scoring each `(question, chunk)` pair more precisely,
 3. keeping only the **best-ranked** chunks for generation.
 
-This chapter uses a lightweight cross-encoder reranker because it is practical, easy to explain, and directly linked to the lecture discussion of modern RAG pipelines.
+This section uses a lightweight cross-encoder reranker because it is practical, easy to explain, and directly linked to the lecture discussion of modern RAG pipelines.
 
 ### Build the Enhanced Retrieval Pipeline
 
@@ -364,7 +364,7 @@ reranked_raw_df.head(3)
 
 ### Score the Reranked Outputs
 
-To keep the comparison consistent with Chapter 5, the re-ranked outputs are scored on the same three dimensions:
+To keep the comparison consistent with Chapter 6, the re-ranked outputs are scored on the same three dimensions:
 
 - **answer relevance**
 - **faithfulness**
