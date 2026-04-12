@@ -433,8 +433,8 @@ for d in [EVAL_DIR, ARTIFACTS_DIR, CONFIG_A_DIR, CONFIG_B_DIR, CONFIG_C_DIR]:
 ```
 
 ```{python}
-#| label: Save reusable artifacts for Chapter 5
-#| eval: true
+#| label: Save reusable artifacts for Chapter 6
+#| eval: false
 #| code-summary: "config_a_manifest"
 
 

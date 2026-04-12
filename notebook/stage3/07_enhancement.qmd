@@ -6,7 +6,7 @@ execute:
 
 This chapter implements two focused enhancements to the Stage 3 RAG system: **second-pass re-ranking** and **Hypothetical Document Embeddings (HyDE)**.
 
-Chapter 6 showed that the **text-only baseline (Config A)** was already the strongest configuration among the three. That makes it a sensible starting point for improvement: rather than changing several components at once, both enhancements keep the baseline architecture intact and modify only the retrieval stage.
+Chapter 5 showed that the **text-only baseline (Config A)** was already the strongest configuration among the three. That makes it a sensible starting point for improvement: rather than changing several components at once, both enhancements keep the baseline architecture intact and modify only the retrieval stage.
 
 **Re-ranking** addresses a limitation of dense retrieval: the first-pass ranking by vector similarity is not always precise enough for question answering. A cross-encoder reranker adds a second step that scores a wider set of retrieved candidates against the full question and keeps only the most relevant chunks for generation.
 
@@ -21,14 +21,14 @@ Both enhancements are aligned with the course material. The project brief explic
 
 This section answers one practical question:
 
->Does adding a reranking step improve the performance of the RAG baseline from Chapter 6?
+>Does adding a reranking step improve the performance of the RAG baseline from Chapter 5?
 
 The comparison is therefore:
 
 - **Baseline:** Config A (text-only RAG)
 - **Enhanced:** Config A + reranking
 
-The same benchmark, scoring dimensions, and output structure from Chapter 6 are reused so that the comparison remains directly interpretable.
+The same benchmark, scoring dimensions, and output structure from Chapter 5 are reused so that the comparison remains directly interpretable.
 
 ### Setup
 

@@ -814,7 +814,7 @@ for doc in result["context"]:
 
 ```{python}
 #| label: Save reusable artifacts for Chapter 6
-#| eval: true
+#| eval: false
 #| code-summary: "config_b_provided_kg"
 import json
 import pickle
