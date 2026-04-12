@@ -1092,6 +1092,8 @@ The qualitative analysis already hinted at this pattern: for broad and thematic 
 
 One caveat worth noting: HyDE relies on the LLM's prior knowledge to generate the hypothetical document. For very specific or recent events - as illustrated by the DeepSeek-R1 query - the hypothetical document may diverge from the corpus framing and retrieve fewer relevant chunks. This is an inherent limitation of the approach that future work could address through domain-specific prompting.
 
+A secondary consideration is that generation, answering, and judging all rely on OpenAI models, which may introduce a small degree of stylistic consistency in the scoring. The relative improvement over the baseline and re-ranking is nonetheless informative.
+
 ### Conclusion
 
 This chapter implemented and evaluated two retrieval enhancements to the text-only RAG baseline: cross-encoder re-ranking and HyDE. Both approaches improved upon the baseline, but HyDE delivered substantially stronger results across all evaluation dimensions, with an overall mean of 3.51 compared to 1.91 for re-ranking and 1.62 for the baseline.
