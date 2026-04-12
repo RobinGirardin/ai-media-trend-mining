@@ -524,57 +524,6 @@ rag_chain = (
 )
 ```
 
-## Pipeline In Action
-
-In order to be able to compare the response qualitatively to the baseline, I'll use the same query as the one used for baseline.
-
-**Query 1** is intentionally broad. The retrieved chunks are mostly from marketing-oriented articles, resulting in a surface-level answer. This reflects a genuine limitation of dense retrieval for high-level trend questions.
-
-```{python}
-#| label: example-query-1
-#| eval: false
-#| code-summary: "Example query 1 on the RAG baseline"
-
-result = rag_chain.invoke("What are the main trends in generative AI in 2025?")
-
-print("Question:", result["question"])
-print("\nAnswer:", result["answer"])
-print("\nSources:")
-for doc in result["context"]:
-    print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
-```
-
-**Query 2** targets a specific, well-documented event in the corpus - the DeepSeek-R1 release in January 2025. The retriever finds highly relevant chunks from multiple sources, and the LLM produces a precise, well-grounded answer.
-
-```{python}
-#| label: example-query-2
-#| eval: false
-#| code-summary: "Example query 2 on the RAG baseline"
-
-result = rag_chain.invoke(
-    "What was the impact of DeepSeek-R1 release on the AI industry?"
-)
-print("Answer:", result["answer"])
-print("\nSources:")
-for doc in result["context"]:
-    print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
-```
-
-**Query 3** tests a thematic question about AI regulation and ethics. The retriever successfully identifies relevant articles from diverse domains, and the LLM synthesizes a coherent answer from the retrieved context.
-
-```{python}
-#| label: example-query-3
-#| eval: false
-#| code-summary: "Example query 3 on the RAG baseline"
-result = rag_chain.invoke(
-    "What are the main concerns around AI regulation and ethics in 2025?"
-)
-print("Answer:", result["answer"])
-print("\nSources:")
-for doc in result["context"]:
-    print(f"  - {doc.metadata['title']} ({doc.metadata['domain']})")
-```
-
 ## Future Improvements
 
 Each node is linked to an article, a relationship that could be leveraged to extract additional context. This would allow the model to cite articles as sources in its metadata.
